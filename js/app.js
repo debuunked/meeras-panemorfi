@@ -1,97 +1,138 @@
 // ============================================================
-// MEERAS PANEMORFI - INVENTORY MANAGEMENT SYSTEM
-// Main Application Logic
+// MEERAS PANEMORFI — INVENTORY MANAGEMENT SYSTEM
+// Fixed: Supabase namespace, empty tables, error handling
 // ============================================================
 
-// ---- SUPABASE CLIENT INIT ----
-let supabase = null;
-let appConfig = {};
+// ---- SUPABASE CLIENT ----
+// Use _db to avoid colliding with window.supabase (the library itself)
+let _db = null;
+let _isConnected = false;
 
 function initSupabase(url, key) {
-  if (!url || !key || url === 'YOUR_SUPABASE_URL') return null;
+  if (!url || !key || url.includes('YOUR_SUPABASE')) return null;
   try {
-    supabase = window.supabase.createClient(url, key);
-    return supabase;
+    _db = window.supabase.createClient(url, key);
+    _isConnected = true;
+    console.log('[Meeras IMS] Supabase connected');
+    return _db;
   } catch (e) {
-    console.error('Supabase init error:', e);
+    console.error('[Meeras IMS] Supabase init error:', e);
+    _isConnected = false;
     return null;
   }
 }
 
-// ---- TOAST NOTIFICATIONS ----
+// Safe query wrapper
+async function dbQuery(fn) {
+  if (!_db) return { data: null, error: new Error('Not connected'), count: null };
+  try {
+    const result = await fn(_db);
+    if (result.error) console.warn('[DB]', result.error.message);
+    return result;
+  } catch (e) {
+    console.error('[DB Error]', e);
+    return { data: null, error: e, count: null };
+  }
+}
+
+// ---- TOAST ----
 function showToast(msg, type = 'info', duration = 3500) {
   const icons = { success: '✓', error: '✕', warning: '⚠', info: '◆' };
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `<span>${icons[type] || icons.info}</span><span>${msg}</span>`;
+  toast.className = 'toast ' + type;
+  toast.innerHTML = '<span>' + (icons[type]||'◆') + '</span><span>' + msg + '</span>';
   container.appendChild(toast);
-  setTimeout(() => {
+  setTimeout(function() {
     toast.style.animation = 'fadeOut 0.3s ease forwards';
-    setTimeout(() => toast.remove(), 300);
+    setTimeout(function() { toast.remove(); }, 300);
   }, duration);
 }
 
 // ---- NAVIGATION ----
 function navigateTo(page) {
-  document.querySelectorAll('.page-content').forEach(p => p.classList.add('hidden'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  
-  const targetPage = document.getElementById(`page-${page}`);
+  document.querySelectorAll('.page-content').forEach(function(p) { p.classList.add('hidden'); });
+  document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
+
+  var targetPage = document.getElementById('page-' + page);
   if (targetPage) targetPage.classList.remove('hidden');
-  
-  const navItem = document.querySelector(`[data-page="${page}"]`);
+
+  var navItem = document.querySelector('[data-page="' + page + '"]');
   if (navItem) navItem.classList.add('active');
 
-  const titles = {
-    dashboard: ['Dashboard', 'Welcome back, Owner'],
-    inventory: ['Inventory', 'Manage products & supplies'],
-    services: ['Services', 'Beauty & wellness services'],
+  var titles = {
+    dashboard:    ['Dashboard', 'Welcome back, Owner'],
+    inventory:    ['Inventory', 'Manage products & supplies'],
+    services:     ['Services', 'Beauty & wellness services'],
     appointments: ['Appointments', 'Schedule & bookings'],
-    sales: ['Sales & POS', 'Point of sale & transactions'],
-    reports: ['Reports & Analytics', 'Data insights & performance'],
-    suppliers: ['Suppliers', 'Vendor management'],
-    staff: ['Staff', 'Team members'],
-    settings: ['Settings', 'System configuration']
+    sales:        ['Sales & POS', 'Point of sale & transactions'],
+    reports:      ['Reports & Analytics', 'Data insights & performance'],
+    suppliers:    ['Suppliers', 'Vendor management'],
+    staff:        ['Staff', 'Team members'],
+    settings:     ['Settings', 'System configuration'],
   };
-  
-  const [title, sub] = titles[page] || ['', ''];
-  document.getElementById('page-title').textContent = title;
-  document.getElementById('page-sub').textContent = sub;
+  var t = titles[page] || ['', ''];
+  setText('page-title', t[0]);
+  setText('page-sub', t[1]);
 
-  // Load data for the page
-  if (page === 'dashboard') loadDashboard();
-  else if (page === 'inventory') loadInventory();
-  else if (page === 'services') loadServices();
+  if (page === 'dashboard')    loadDashboard();
+  else if (page === 'inventory')    loadInventory();
+  else if (page === 'services')     loadServices();
   else if (page === 'appointments') loadAppointments();
-  else if (page === 'sales') loadSales();
-  else if (page === 'reports') loadReports();
-  else if (page === 'suppliers') loadSuppliers();
-  else if (page === 'staff') loadStaff();
+  else if (page === 'sales')        loadSales();
+  else if (page === 'reports')      loadReports();
+  else if (page === 'suppliers')    loadSuppliers();
+  else if (page === 'staff')        loadStaff();
 }
 
-// ---- DASHBOARD ----
+function updateSetupBanner() {
+  var banner = document.getElementById('setup-banner');
+  if (banner) banner.style.display = _isConnected ? 'none' : 'flex';
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
 async function loadDashboard() {
-  if (!supabase) { renderDemoDashboard(); return; }
-  
+  updateSetupBanner();
+  updateConnectionBadge();
+
+  if (!_isConnected) {
+    renderDemoDashboard();
+    renderDemoChart();
+    return;
+  }
+
   try {
-    const today = new Date().toISOString().split('T')[0];
-    
-    const [{ count: totalProducts }, { count: lowStock }, { data: todaySales }, { count: todayAppts }] = await Promise.all([
-      supabase.from('products').select('*', { count: 'exact', head: true }).eq('is_active', true),
-      supabase.from('products').select('*', { count: 'exact', head: true }).lt('quantity', 5).eq('is_active', true),
-      supabase.from('sales').select('total').gte('created_at', today),
-      supabase.from('appointments').select('*', { count: 'exact', head: true }).eq('appointment_date', today)
+    var today = new Date().toISOString().split('T')[0];
+    var [pRes, lRes, sRes, aRes] = await Promise.all([
+      dbQuery(function(db) { return db.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true); }),
+      dbQuery(function(db) { return db.from('products').select('id', { count: 'exact', head: true }).lt('quantity', 5).gte('quantity', 0).eq('is_active', true); }),
+      dbQuery(function(db) { return db.from('sales').select('total').gte('created_at', today + 'T00:00:00'); }),
+      dbQuery(function(db) { return db.from('appointments').select('id', { count: 'exact', head: true }).eq('appointment_date', today); }),
     ]);
-    
-    const todayRevenue = (todaySales || []).reduce((s, r) => s + (r.total || 0), 0);
-    updateDashboardStats(totalProducts || 0, lowStock || 0, todayRevenue, todayAppts || 0);
-    loadRecentActivity();
-    loadLowStockAlerts();
+    var totalProducts = pRes.count || 0;
+    var lowStock = lRes.count || 0;
+    var todayRevenue = (sRes.data || []).reduce(function(s,r) { return s + (parseFloat(r.total)||0); }, 0);
+    var todayAppts = aRes.count || 0;
+    updateDashboardStats(totalProducts, lowStock, todayRevenue, todayAppts);
+    await Promise.all([loadRecentActivity(), loadLowStockAlerts()]);
+    renderDemoChart();
   } catch(e) {
     console.error(e);
     renderDemoDashboard();
   }
+}
+
+function updateDashboardStats(products, lowStock, revenue, appts) {
+  setText('stat-products',  products);
+  setText('stat-low-stock', lowStock);
+  setText('stat-revenue',   '₱' + formatNumber(revenue));
+  setText('stat-appts',     appts);
+  var badge = document.getElementById('low-stock-badge');
+  if (badge) { badge.textContent = lowStock; badge.style.display = lowStock > 0 ? 'inline-block' : 'none'; }
+  var dot = document.getElementById('header-alert-dot');
+  if (dot) dot.style.display = lowStock > 0 ? 'block' : 'none';
 }
 
 function renderDemoDashboard() {
@@ -100,1179 +141,588 @@ function renderDemoDashboard() {
   renderDemoLowStock();
 }
 
-function updateDashboardStats(products, lowStock, revenue, appts) {
-  document.getElementById('stat-products').textContent = products;
-  document.getElementById('stat-low-stock').textContent = lowStock;
-  document.getElementById('stat-revenue').textContent = formatCurrency(revenue);
-  document.getElementById('stat-appts').textContent = appts;
-  if (lowStock > 0) {
-    const badge = document.getElementById('low-stock-badge');
-    if (badge) { badge.textContent = lowStock; badge.style.display = 'inline-block'; }
-  }
-}
-
 async function loadRecentActivity() {
-  if (!supabase) { renderDemoActivity(); return; }
-  try {
-    const { data } = await supabase.from('stock_transactions')
-      .select('*, products(name)').order('created_at', { ascending: false }).limit(6);
-    renderActivity(data || []);
-  } catch(e) { renderDemoActivity(); }
+  if (!_isConnected) { renderDemoActivity(); return; }
+  var res = await dbQuery(function(db) {
+    return db.from('stock_transactions').select('*, products(name)').order('created_at', { ascending: false }).limit(6);
+  });
+  renderActivity(res.data || []);
 }
 
 function renderActivity(items) {
-  const list = document.getElementById('activity-list');
-  if (!items.length) { list.innerHTML = '<p class="td-muted" style="text-align:center;padding:20px">No recent activity</p>'; return; }
-  list.innerHTML = items.map(item => `
-    <div class="activity-item">
-      <div class="activity-dot" style="background:${item.type==='in'?'var(--green)':item.type==='out'?'var(--red)':'var(--orange)'}"></div>
-      <div class="activity-text">
-        <span>${item.products?.name || 'Product'}</span> — 
-        ${item.type === 'in' ? 'Stock added' : item.type === 'out' ? 'Stock removed' : 'Adjusted'}: 
-        ${Math.abs(item.quantity)} units ${item.notes ? `<em class="td-muted">(${item.notes})</em>` : ''}
-      </div>
-      <div class="activity-time">${timeAgo(item.created_at)}</div>
-    </div>
-  `).join('');
+  var list = document.getElementById('activity-list');
+  if (!items.length) {
+    list.innerHTML = '<p class="td-muted" style="text-align:center;padding:20px">No recent activity. Add stock to see history here.</p>';
+    return;
+  }
+  list.innerHTML = items.map(function(item) {
+    var color = item.type==='in' ? 'var(--green)' : item.type==='out' ? 'var(--red)' : 'var(--orange)';
+    var action = item.type==='in' ? 'Stock added' : item.type==='out' ? 'Stock removed' : 'Adjusted';
+    return '<div class="activity-item"><div class="activity-dot" style="background:' + color + '"></div><div class="activity-text"><span>' + (item.products && item.products.name ? item.products.name : 'Product') + '</span> — ' + action + ': ' + Math.abs(item.quantity) + ' units' + (item.notes ? ' <em class="td-muted">(' + item.notes + ')</em>' : '') + '</div><div class="activity-time">' + timeAgo(item.created_at) + '</div></div>';
+  }).join('');
 }
 
 function renderDemoActivity() {
-  const demos = [
-    { color: 'var(--green)', text: '<span>Facial Serum</span> — Stock added: 10 units', time: '2m ago' },
-    { color: 'var(--red)', text: '<span>Wax Strips</span> — Used for service: 5 units', time: '1h ago' },
-    { color: 'var(--orange)', text: '<span>Nail Polish Set</span> — Inventory adjusted: -2 units', time: '3h ago' },
-    { color: 'var(--green)', text: '<span>Facial Cleanser</span> — Stock added: 24 units', time: '5h ago' },
-    { color: 'var(--red)', text: '<span>Eyebrow Tint</span> — Used for service: 1 unit', time: 'Yesterday' },
+  var demos = [
+    { c:'var(--green)',  t:'<span>Facial Serum</span> — Stock added: 10 units',    time:'2m ago' },
+    { c:'var(--red)',    t:'<span>Wax Strips</span> — Used for service: 5 units',  time:'1h ago' },
+    { c:'var(--orange)', t:'<span>Nail Polish</span> — Adjusted: -2 units',        time:'3h ago' },
+    { c:'var(--green)',  t:'<span>Facial Cleanser</span> — Stock added: 24 units', time:'5h ago' },
+    { c:'var(--red)',    t:'<span>Eyebrow Tint</span> — Used for service: 1 unit', time:'Yesterday' },
   ];
-  document.getElementById('activity-list').innerHTML = demos.map(d => `
-    <div class="activity-item">
-      <div class="activity-dot" style="background:${d.color}"></div>
-      <div class="activity-text">${d.text}</div>
-      <div class="activity-time">${d.time}</div>
-    </div>
-  `).join('');
+  document.getElementById('activity-list').innerHTML = demos.map(function(d) {
+    return '<div class="activity-item"><div class="activity-dot" style="background:' + d.c + '"></div><div class="activity-text">' + d.t + '</div><div class="activity-time">' + d.time + '</div></div>';
+  }).join('');
 }
 
 async function loadLowStockAlerts() {
-  if (!supabase) { renderDemoLowStock(); return; }
-  try {
-    const { data } = await supabase.from('products')
-      .select('name, quantity, min_stock').lt('quantity', 5).eq('is_active', true).limit(5);
-    renderLowStock(data || []);
-  } catch(e) { renderDemoLowStock(); }
+  if (!_isConnected) { renderDemoLowStock(); return; }
+  var res = await dbQuery(function(db) {
+    return db.from('products').select('name,quantity,min_stock').lt('quantity', 5).eq('is_active', true).order('quantity').limit(6);
+  });
+  renderLowStock(res.data || []);
 }
 
 function renderLowStock(items) {
-  const list = document.getElementById('low-stock-list');
+  var list = document.getElementById('low-stock-list');
   if (!items.length) {
-    list.innerHTML = '<div class="empty-state" style="padding:20px"><p>All products are well-stocked ✓</p></div>';
+    list.innerHTML = '<p style="color:var(--green);font-size:0.82rem;padding:8px 0">✓ All products are well-stocked!</p>';
     return;
   }
-  list.innerHTML = items.map(i => `
-    <div class="low-stock-item">
-      <span class="low-stock-name">${i.name}</span>
-      <span class="low-stock-count">${i.quantity} left</span>
-    </div>
-  `).join('');
+  list.innerHTML = items.map(function(i) {
+    return '<div class="low-stock-item"><span class="low-stock-name">' + i.name + '</span><span class="low-stock-count">' + i.quantity + ' left</span></div>';
+  }).join('');
 }
 
 function renderDemoLowStock() {
-  const demos = [
-    { name: 'Wax Strips (Roll)', quantity: 2 },
-    { name: 'Exfoliating Scrub', quantity: 1 },
-    { name: 'Threading Thread', quantity: 4 },
-  ];
-  renderLowStock(demos);
+  renderLowStock([{ name:'Wax Strips (Roll)', quantity:2 }, { name:'Exfoliating Scrub', quantity:1 }, { name:'Threading Thread', quantity:4 }]);
 }
 
-// ---- INVENTORY ----
-let allProducts = [];
-let editingProductId = null;
+function renderDemoChart() {
+  var canvas = document.getElementById('revenue-chart');
+  if (!canvas) return;
+  canvas.width = canvas.offsetWidth || 560;
+  var ctx = canvas.getContext('2d');
+  drawBarChart(ctx, canvas.width, 220, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [3200,4500,2800,6700,5100,8900,7200]);
+}
+
+function drawBarChart(ctx, w, h, labels, values) {
+  ctx.clearRect(0, 0, w, h);
+  if (!values.length) return;
+  var max = Math.max.apply(null, values.concat([1])) * 1.15;
+  var pad = { top:20, right:16, bottom:36, left:58 };
+  var chartW = w - pad.left - pad.right;
+  var chartH = h - pad.top - pad.bottom;
+  var barW = (chartW / labels.length) * 0.55;
+  var gap = chartW / labels.length;
+  ctx.strokeStyle = 'rgba(201,151,28,0.1)'; ctx.lineWidth = 1;
+  for (var i = 0; i <= 4; i++) {
+    var y = pad.top + chartH - (i/4)*chartH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w-pad.right, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(107,101,96,0.65)';
+    ctx.font = '10px Jost,sans-serif'; ctx.textAlign = 'right';
+    var val = (i/4)*max;
+    ctx.fillText(val >= 1000 ? '₱'+(val/1000).toFixed(1)+'k' : '₱'+val.toFixed(0), pad.left-5, y+4);
+  }
+  labels.forEach(function(label, i) {
+    var x = pad.left + i*gap + (gap-barW)/2;
+    var barH = (values[i]/max)*chartH;
+    var y = pad.top + chartH - barH;
+    var grad = ctx.createLinearGradient(0, y, 0, y+barH);
+    grad.addColorStop(0, '#E8B94F'); grad.addColorStop(1, '#9A7213');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, barW, barH, 4); else ctx.rect(x, y, barW, barH);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(44,36,22,0.65)'; ctx.font = '10px Jost,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(label, x+barW/2, h-pad.bottom/2+6);
+  });
+}
+
+// ============================================================
+// INVENTORY
+// ============================================================
+var allProducts = [];
+var editingProductId = null;
 
 async function loadInventory() {
-  const tbody = document.getElementById('inventory-tbody');
-  tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px"><div class="loading-spinner"></div></td></tr>`;
-  
-  if (!supabase) { renderDemoInventory(); return; }
-  
-  try {
-    const { data, error } = await supabase.from('products')
-      .select('*').order('name');
-    if (error) throw error;
-    allProducts = data || [];
-    renderInventoryTable(allProducts);
-  } catch(e) {
-    console.error(e);
-    renderDemoInventory();
-  }
+  document.getElementById('inventory-tbody').innerHTML = loadingRow(8);
+  var res = await dbQuery(function(db) { return db.from('products').select('*').eq('is_active', true).order('name'); });
+  if (res.error && !_isConnected) { renderDemoInventory(); return; }
+  allProducts = res.data || [];
+  if (!allProducts.length && !_isConnected) renderDemoInventory();
+  else renderInventoryTable(allProducts);
 }
 
 function renderDemoInventory() {
   allProducts = [
-    { id: 'demo-1', name: 'Facial Cleanser', category: 'Skincare', sku: 'SK001', quantity: 18, min_stock: 5, unit: 'bottle', cost_price: 250, selling_price: 450, supplier: 'Beauty Supplies Co.', is_active: true },
-    { id: 'demo-2', name: 'Wax Strips (Roll)', category: 'Waxing', sku: 'WX001', quantity: 2, min_stock: 10, unit: 'roll', cost_price: 180, selling_price: 0, supplier: 'Hair Removal PH', is_active: true },
-    { id: 'demo-3', name: 'Threading Thread', category: 'Threading', sku: 'TH001', quantity: 4, min_stock: 15, unit: 'spool', cost_price: 45, selling_price: 0, supplier: 'Beauty Supplies Co.', is_active: true },
-    { id: 'demo-4', name: 'Exfoliating Scrub', category: 'Skincare', sku: 'SK002', quantity: 1, min_stock: 5, unit: 'tube', cost_price: 320, selling_price: 550, supplier: 'Glow Essentials', is_active: true },
-    { id: 'demo-5', name: 'Nail Polish Set (Gel)', category: 'Nails', sku: 'NL001', quantity: 12, min_stock: 5, unit: 'set', cost_price: 1200, selling_price: 2000, supplier: 'Nail World PH', is_active: true },
-    { id: 'demo-6', name: 'Eyebrow Tint', category: 'Tinting', sku: 'TN001', quantity: 8, min_stock: 5, unit: 'tube', cost_price: 350, selling_price: 0, supplier: 'Beauty Supplies Co.', is_active: true },
-    { id: 'demo-7', name: 'Disposable Spatulas', category: 'Waxing', sku: 'WX002', quantity: 200, min_stock: 50, unit: 'pcs', cost_price: 3, selling_price: 0, supplier: 'Hair Removal PH', is_active: true },
-    { id: 'demo-8', name: 'Vitamin C Serum', category: 'Skincare', sku: 'SK003', quantity: 7, min_stock: 5, unit: 'bottle', cost_price: 420, selling_price: 750, supplier: 'Glow Essentials', is_active: true },
+    { id:'d1', name:'Facial Cleanser',       category:'Skincare',  sku:'SK001', quantity:18,  min_stock:5,  unit:'bottle', cost_price:250,  selling_price:450,  supplier:'Beauty Supplies Co.', is_active:true },
+    { id:'d2', name:'Wax Strips (Roll)',      category:'Waxing',    sku:'WX001', quantity:2,   min_stock:10, unit:'roll',   cost_price:180,  selling_price:0,    supplier:'Hair Removal PH',     is_active:true },
+    { id:'d3', name:'Threading Thread',       category:'Threading', sku:'TH001', quantity:4,   min_stock:15, unit:'spool',  cost_price:45,   selling_price:0,    supplier:'Beauty Supplies Co.', is_active:true },
+    { id:'d4', name:'Exfoliating Scrub',      category:'Skincare',  sku:'SK002', quantity:1,   min_stock:5,  unit:'tube',   cost_price:320,  selling_price:550,  supplier:'Glow Essentials',     is_active:true },
+    { id:'d5', name:'Nail Polish Set (Gel)',  category:'Nails',     sku:'NL001', quantity:12,  min_stock:5,  unit:'set',    cost_price:1200, selling_price:2000, supplier:'Nail World PH',       is_active:true },
+    { id:'d6', name:'Eyebrow Tint',           category:'Tinting',   sku:'TN001', quantity:8,   min_stock:5,  unit:'tube',   cost_price:350,  selling_price:0,    supplier:'Beauty Supplies Co.', is_active:true },
+    { id:'d7', name:'Disposable Spatulas',    category:'Waxing',    sku:'WX002', quantity:200, min_stock:50, unit:'pcs',    cost_price:3,    selling_price:0,    supplier:'Hair Removal PH',     is_active:true },
+    { id:'d8', name:'Vitamin C Serum',        category:'Skincare',  sku:'SK003', quantity:7,   min_stock:5,  unit:'bottle', cost_price:420,  selling_price:750,  supplier:'Glow Essentials',     is_active:true },
   ];
   renderInventoryTable(allProducts);
 }
 
 function renderInventoryTable(products) {
-  const tbody = document.getElementById('inventory-tbody');
+  var tbody = document.getElementById('inventory-tbody');
   if (!products.length) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">📦</div><h3>No products yet</h3><p>Add your first product to get started</p></div></td></tr>`;
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">📦</div><h3>No products yet</h3><p>Click <strong>+ Add Product</strong> to add your first item</p></div></td></tr>';
     return;
   }
-  tbody.innerHTML = products.map(p => {
-    const stockPct = Math.min(100, (p.quantity / Math.max(p.min_stock * 3, 1)) * 100);
-    const stockClass = p.quantity <= 0 ? 'critical' : p.quantity < p.min_stock ? 'low' : 'ok';
-    const stockBadge = p.quantity <= 0 ? 'badge-red' : p.quantity < p.min_stock ? 'badge-orange' : 'badge-green';
-    const stockLabel = p.quantity <= 0 ? 'Out' : p.quantity < p.min_stock ? 'Low' : 'OK';
-    return `
-      <tr>
-        <td>
-          <div style="font-weight:600;font-size:0.83rem">${p.name}</div>
-          <div class="td-muted">${p.sku || '-'}</div>
-        </td>
-        <td><span class="badge badge-gold">${p.category}</span></td>
-        <td>
-          <div class="stock-bar">
-            <div class="stock-bar-track"><div class="stock-bar-fill ${stockClass}" style="width:${stockPct}%"></div></div>
-            <span class="stock-count">${p.quantity} ${p.unit}</span>
-          </div>
-        </td>
-        <td class="td-muted">${p.min_stock}</td>
-        <td>₱${formatNumber(p.cost_price)}</td>
-        <td>${p.selling_price > 0 ? '₱' + formatNumber(p.selling_price) : '<span class="td-muted">—</span>'}</td>
-        <td><span class="badge ${stockBadge}">${stockLabel}</span></td>
-        <td>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-outline btn-sm btn-icon" onclick="openStockModal('${p.id}','${escHtml(p.name)}')" title="Adjust Stock">±</button>
-            <button class="btn btn-outline btn-sm" onclick="editProduct('${p.id}')">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.id}')">Del</button>
-          </div>
-        </td>
-      </tr>
-    `;
+  tbody.innerHTML = products.map(function(p) {
+    var maxQ = Math.max(p.min_stock*3, p.quantity, 1);
+    var pct = Math.min(100, Math.round((p.quantity/maxQ)*100));
+    var isOut = p.quantity <= 0;
+    var isLow = !isOut && p.quantity < p.min_stock;
+    var barC = isOut ? 'critical' : isLow ? 'low' : 'ok';
+    var bdg  = isOut ? 'badge-red' : isLow ? 'badge-orange' : 'badge-green';
+    var lbl  = isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock';
+    return '<tr><td><div style="font-weight:600;font-size:0.83rem">' + p.name + '</div><div class="td-muted">' + (p.sku||'—') + '</div></td>'
+      + '<td><span class="badge badge-gold">' + p.category + '</span></td>'
+      + '<td><div class="stock-bar"><div class="stock-bar-track"><div class="stock-bar-fill ' + barC + '" style="width:' + pct + '%"></div></div><span class="stock-count">' + p.quantity + ' ' + (p.unit||'pcs') + '</span></div></td>'
+      + '<td class="td-muted">' + p.min_stock + '</td>'
+      + '<td>₱' + formatNumber(p.cost_price) + '</td>'
+      + '<td>' + (p.selling_price > 0 ? '₱' + formatNumber(p.selling_price) : '<span class="td-muted">—</span>') + '</td>'
+      + '<td><span class="badge ' + bdg + '">' + lbl + '</span></td>'
+      + '<td><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-outline btn-sm" onclick="openStockModal(\'' + p.id + '\',\'' + esc(p.name) + '\')">± Stock</button><button class="btn btn-outline btn-sm" onclick="editProduct(\'' + p.id + '\')">Edit</button><button class="btn btn-danger btn-sm" onclick="deleteProduct(\'' + p.id + '\')">Delete</button></div></td></tr>';
   }).join('');
 }
 
 function filterInventory() {
-  const search = document.getElementById('inv-search').value.toLowerCase();
-  const cat = document.getElementById('inv-cat-filter').value;
-  const stock = document.getElementById('inv-stock-filter').value;
-  
-  const filtered = allProducts.filter(p => {
-    const matchSearch = !search || p.name.toLowerCase().includes(search) || (p.sku || '').toLowerCase().includes(search);
-    const matchCat = !cat || p.category === cat;
-    const matchStock = !stock || 
-      (stock === 'ok' && p.quantity >= p.min_stock) ||
-      (stock === 'low' && p.quantity > 0 && p.quantity < p.min_stock) ||
-      (stock === 'out' && p.quantity <= 0);
-    return matchSearch && matchCat && matchStock;
+  var search = (getVal('inv-search')||'').toLowerCase();
+  var cat = getVal('inv-cat-filter');
+  var stock = getVal('inv-stock-filter');
+  var filtered = allProducts.filter(function(p) {
+    var ms = !search || p.name.toLowerCase().includes(search) || (p.sku||'').toLowerCase().includes(search);
+    var mc = !cat || p.category === cat;
+    var mk = !stock || (stock==='ok' && p.quantity>=p.min_stock) || (stock==='low' && p.quantity>0 && p.quantity<p.min_stock) || (stock==='out' && p.quantity<=0);
+    return ms && mc && mk;
   });
   renderInventoryTable(filtered);
 }
 
 function openAddProductModal() {
   editingProductId = null;
-  document.getElementById('product-modal-title').textContent = 'Add New Product';
+  setText('product-modal-title', 'Add New Product');
   document.getElementById('product-form').reset();
   openModal('product-modal');
 }
 
 function editProduct(id) {
-  const p = allProducts.find(x => x.id === id);
+  var p = allProducts.find(function(x) { return x.id === id; });
   if (!p) return;
   editingProductId = id;
-  document.getElementById('product-modal-title').textContent = 'Edit Product';
-  document.getElementById('pf-name').value = p.name;
-  document.getElementById('pf-category').value = p.category;
-  document.getElementById('pf-sku').value = p.sku || '';
-  document.getElementById('pf-unit').value = p.unit || 'pcs';
-  document.getElementById('pf-quantity').value = p.quantity;
-  document.getElementById('pf-min-stock').value = p.min_stock;
-  document.getElementById('pf-cost').value = p.cost_price;
-  document.getElementById('pf-price').value = p.selling_price;
-  document.getElementById('pf-supplier').value = p.supplier || '';
-  document.getElementById('pf-description').value = p.description || '';
+  setText('product-modal-title', 'Edit Product');
+  setVal('pf-name', p.name); setVal('pf-category', p.category); setVal('pf-sku', p.sku||'');
+  setVal('pf-unit', p.unit||'pcs'); setVal('pf-quantity', p.quantity); setVal('pf-min-stock', p.min_stock);
+  setVal('pf-cost', p.cost_price); setVal('pf-price', p.selling_price); setVal('pf-supplier', p.supplier||''); setVal('pf-description', p.description||'');
   openModal('product-modal');
 }
 
 async function saveProduct() {
-  const data = {
-    name: document.getElementById('pf-name').value.trim(),
-    category: document.getElementById('pf-category').value,
-    sku: document.getElementById('pf-sku').value.trim() || null,
-    unit: document.getElementById('pf-unit').value,
-    quantity: parseInt(document.getElementById('pf-quantity').value) || 0,
-    min_stock: parseInt(document.getElementById('pf-min-stock').value) || 5,
-    cost_price: parseFloat(document.getElementById('pf-cost').value) || 0,
-    selling_price: parseFloat(document.getElementById('pf-price').value) || 0,
-    supplier: document.getElementById('pf-supplier').value.trim() || null,
-    description: document.getElementById('pf-description').value.trim() || null,
-    updated_at: new Date().toISOString()
-  };
-  
+  var data = { name:getVal('pf-name').trim(), category:getVal('pf-category'), sku:getVal('pf-sku').trim()||null, unit:getVal('pf-unit'), quantity:parseInt(getVal('pf-quantity'))||0, min_stock:parseInt(getVal('pf-min-stock'))||5, cost_price:parseFloat(getVal('pf-cost'))||0, selling_price:parseFloat(getVal('pf-price'))||0, supplier:getVal('pf-supplier').trim()||null, description:getVal('pf-description').trim()||null, updated_at:new Date().toISOString() };
   if (!data.name || !data.category) { showToast('Name and category are required', 'error'); return; }
-  
-  if (!supabase) {
-    if (editingProductId) {
-      const idx = allProducts.findIndex(p => p.id === editingProductId);
-      if (idx > -1) allProducts[idx] = { ...allProducts[idx], ...data };
-    } else {
-      allProducts.push({ id: 'demo-' + Date.now(), ...data, is_active: true, created_at: new Date().toISOString() });
-    }
-    renderInventoryTable(allProducts);
-    closeModal('product-modal');
-    showToast(editingProductId ? 'Product updated' : 'Product added', 'success');
-    return;
+  if (!_isConnected) {
+    if (editingProductId) { var i=allProducts.findIndex(function(p){return p.id===editingProductId;}); if(i>-1) allProducts[i]={...allProducts[i],...data}; }
+    else allProducts.unshift({id:'d'+Date.now(),...data,is_active:true,created_at:new Date().toISOString()});
+    renderInventoryTable(allProducts); closeModal('product-modal'); showToast(editingProductId?'Product updated':'Product added','success'); return;
   }
-  
-  try {
-    let result;
-    if (editingProductId) {
-      result = await supabase.from('products').update(data).eq('id', editingProductId).select().single();
-    } else {
-      result = await supabase.from('products').insert({ ...data, is_active: true }).select().single();
-    }
-    if (result.error) throw result.error;
-    closeModal('product-modal');
-    showToast(editingProductId ? 'Product updated successfully' : 'Product added successfully', 'success');
-    loadInventory();
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+  var res = editingProductId
+    ? await dbQuery(function(db){return db.from('products').update(data).eq('id',editingProductId).select().single();})
+    : await dbQuery(function(db){return db.from('products').insert({...data,is_active:true}).select().single();});
+  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  closeModal('product-modal'); showToast(editingProductId?'Updated ✓':'Added ✓','success'); loadInventory();
 }
 
 async function deleteProduct(id) {
-  if (!confirm('Are you sure you want to delete this product?')) return;
-  
-  if (!supabase) {
-    allProducts = allProducts.filter(p => p.id !== id);
-    renderInventoryTable(allProducts);
-    showToast('Product deleted', 'success');
-    return;
-  }
-  
-  try {
-    const { error } = await supabase.from('products').update({ is_active: false }).eq('id', id);
-    if (error) throw error;
-    showToast('Product deleted', 'success');
-    loadInventory();
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+  if (!confirm('Delete this product?')) return;
+  if (!_isConnected) { allProducts=allProducts.filter(function(p){return p.id!==id;}); renderInventoryTable(allProducts); showToast('Deleted','success'); return; }
+  var res = await dbQuery(function(db){return db.from('products').update({is_active:false}).eq('id',id);});
+  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  showToast('Deleted','success'); loadInventory();
 }
 
 // ---- STOCK ADJUSTMENT ----
-let adjustingProductId = null;
-
+var adjustingProductId = null;
 function openStockModal(productId, productName) {
   adjustingProductId = productId;
-  document.getElementById('stock-product-name').textContent = productName;
-  document.getElementById('stock-qty').value = 1;
-  document.getElementById('stock-type').value = 'in';
-  document.getElementById('stock-notes').value = '';
+  setText('stock-product-name', productName);
+  setVal('stock-qty', 1); setVal('stock-type', 'in'); setVal('stock-notes', '');
   openModal('stock-modal');
 }
-
 async function saveStockAdjustment() {
-  const type = document.getElementById('stock-type').value;
-  const qty = parseInt(document.getElementById('stock-qty').value) || 0;
-  const notes = document.getElementById('stock-notes').value.trim();
-  
-  if (!qty || qty <= 0) { showToast('Enter a valid quantity', 'error'); return; }
-  
-  const product = allProducts.find(p => p.id === adjustingProductId);
+  var type = getVal('stock-type'), qty = parseInt(getVal('stock-qty'))||0, notes = getVal('stock-notes').trim();
+  if (qty<=0) { showToast('Enter a valid quantity','error'); return; }
+  var product = allProducts.find(function(p){return p.id===adjustingProductId;});
   if (!product) return;
-  
-  const delta = type === 'in' ? qty : type === 'out' ? -qty : qty;
-  const newQty = Math.max(0, product.quantity + delta);
-  
-  if (!supabase) {
-    product.quantity = newQty;
-    renderInventoryTable(allProducts);
-    closeModal('stock-modal');
-    showToast(`Stock ${type === 'in' ? 'added' : type === 'out' ? 'removed' : 'adjusted'}`, 'success');
-    return;
+  var delta = type==='out' ? -qty : qty;
+  var newQty = Math.max(0, product.quantity+delta);
+  if (!_isConnected) {
+    product.quantity=newQty; renderInventoryTable(allProducts); closeModal('stock-modal'); showToast('Stock updated','success'); return;
   }
-  
-  try {
-    await supabase.from('products').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', adjustingProductId);
-    await supabase.from('stock_transactions').insert({ product_id: adjustingProductId, type, quantity: qty, notes });
-    closeModal('stock-modal');
-    showToast('Stock updated', 'success');
-    loadInventory();
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+  var r1 = await dbQuery(function(db){return db.from('products').update({quantity:newQty,updated_at:new Date().toISOString()}).eq('id',adjustingProductId);});
+  if (r1.error) { showToast('Error: '+r1.error.message,'error'); return; }
+  await dbQuery(function(db){return db.from('stock_transactions').insert({product_id:adjustingProductId,type,quantity:qty,notes});});
+  closeModal('stock-modal'); showToast('Stock updated ✓','success'); loadInventory(); loadDashboard();
 }
 
-// ---- SERVICES ----
-let allServices = [];
-let editingServiceId = null;
+// ============================================================
+// SERVICES
+// ============================================================
+var allServices = [];
+var editingServiceId = null;
+var DEFAULT_SERVICES = [
+  {id:'s01',name:'Basic Facial',category:'Facial',price:400,duration_minutes:60,is_active:true},
+  {id:'s02',name:'Diamond Peel',category:'Facial',price:500,duration_minutes:60,is_active:true},
+  {id:'s03',name:'Glycopeel Facial',category:'Facial',price:800,duration_minutes:75,is_active:true},
+  {id:'s04',name:'Hydra Glow Facial',category:'Facial',price:1000,duration_minutes:75,is_active:true},
+  {id:'s05',name:'Black Crystal Carbon Peel',category:'Facial',price:1000,duration_minutes:75,is_active:true},
+  {id:'s06',name:'Anti Aging Facial',category:'Facial',price:1000,duration_minutes:90,is_active:true},
+  {id:'s07',name:'Korean BB Glow',category:'Facial',price:1000,duration_minutes:90,is_active:true},
+  {id:'s08',name:'Korean BB Slim',category:'Facial',price:1500,duration_minutes:90,is_active:true},
+  {id:'s09',name:'Korean Black Pearl',category:'Facial',price:1800,duration_minutes:90,is_active:true},
+  {id:'s10',name:'RF Face Tightening',category:'Face Tightening',price:500,duration_minutes:45,is_active:true},
+  {id:'s11',name:'RF Eye Bag Removal',category:'Face Tightening',price:300,duration_minutes:30,is_active:true},
+  {id:'s12',name:'Underarm Waxing',category:'Waxing',price:250,duration_minutes:20,is_active:true},
+  {id:'s13',name:'Half Leg Waxing',category:'Waxing',price:350,duration_minutes:30,is_active:true},
+  {id:'s14',name:'Full Leg Waxing',category:'Waxing',price:600,duration_minutes:45,is_active:true},
+  {id:'s15',name:'Bikini Waxing',category:'Waxing',price:400,duration_minutes:30,is_active:true},
+  {id:'s16',name:'Brazilian Waxing',category:'Waxing',price:800,duration_minutes:45,is_active:true},
+  {id:'s17',name:'Eyebrow Threading',category:'Threading',price:150,duration_minutes:15,is_active:true},
+  {id:'s18',name:'Upper Lips Threading',category:'Threading',price:150,duration_minutes:10,is_active:true},
+  {id:'s19',name:'Lower Lips Threading',category:'Threading',price:150,duration_minutes:10,is_active:true},
+  {id:'s20',name:'Eyebrow Tinting',category:'Tinting',price:150,duration_minutes:20,is_active:true},
+  {id:'s21',name:'Eyelash Tinting',category:'Tinting',price:150,duration_minutes:20,is_active:true},
+  {id:'s22',name:'Meso Acne',category:'Meso Treatments',price:1500,duration_minutes:60,is_active:true},
+  {id:'s23',name:'Meso Scar',category:'Meso Treatments',price:1500,duration_minutes:60,is_active:true},
+  {id:'s24',name:'Meso White',category:'Meso Treatments',price:1500,duration_minutes:60,is_active:true},
+  {id:'s25',name:'Exilis Whole Face',category:'Exilis Treatments',price:2000,duration_minutes:90,is_active:true},
+  {id:'s26',name:'Exilis Eye Bag',category:'Exilis Treatments',price:500,duration_minutes:30,is_active:true},
+  {id:'s27',name:'Exilis Cheeks',category:'Exilis Treatments',price:800,duration_minutes:45,is_active:true},
+  {id:'s28',name:'Exilis Double Chin',category:'Exilis Treatments',price:1000,duration_minutes:45,is_active:true},
+  {id:'s29',name:'Exilis Arms',category:'Exilis Treatments',price:1500,duration_minutes:60,is_active:true},
+  {id:'s30',name:'Exilis Legs',category:'Exilis Treatments',price:1500,duration_minutes:60,is_active:true},
+  {id:'s31',name:'Exilis Tummy',category:'Exilis Treatments',price:2000,duration_minutes:90,is_active:true},
+];
 
 async function loadServices() {
-  if (!supabase) { renderDemoServices(); return; }
-  
-  try {
-    const { data, error } = await supabase.from('services').select('*').order('category').order('name');
-    if (error) throw error;
-    allServices = data || [];
-    renderServicesTable(allServices);
-  } catch(e) {
-    renderDemoServices();
+  document.getElementById('services-tbody').innerHTML = loadingRow(6);
+  var res = await dbQuery(function(db){return db.from('services').select('*').order('category').order('name');});
+  if (res.error || !res.data) {
+    allServices = DEFAULT_SERVICES;
+  } else if (res.data.length === 0) {
+    allServices = DEFAULT_SERVICES;
+    await seedServices();
+  } else {
+    allServices = res.data;
   }
-}
-
-function renderDemoServices() {
-  allServices = [
-    { id: 's1', name: 'Basic Facial', category: 'Facial', price: 400, duration_minutes: 60, is_active: true },
-    { id: 's2', name: 'Diamond Peel', category: 'Facial', price: 500, duration_minutes: 60, is_active: true },
-    { id: 's3', name: 'Korean Black Pearl', category: 'Facial', price: 1800, duration_minutes: 90, is_active: true },
-    { id: 's4', name: 'Underarm Waxing', category: 'Waxing', price: 250, duration_minutes: 20, is_active: true },
-    { id: 's5', name: 'Brazilian Waxing', category: 'Waxing', price: 800, duration_minutes: 45, is_active: true },
-    { id: 's6', name: 'Eyebrow Threading', category: 'Threading', price: 150, duration_minutes: 15, is_active: true },
-    { id: 's7', name: 'Meso Acne', category: 'Meso Treatments', price: 1500, duration_minutes: 60, is_active: true },
-    { id: 's8', name: 'Exilis Tummy', category: 'Exilis Treatments', price: 2000, duration_minutes: 90, is_active: true },
-  ];
   renderServicesTable(allServices);
 }
 
+async function seedServices() {
+  if (!_isConnected) return;
+  var rows = DEFAULT_SERVICES.map(function(s){return {name:s.name,category:s.category,price:s.price,duration_minutes:s.duration_minutes,is_active:true};});
+  var res = await dbQuery(function(db){return db.from('services').insert(rows);});
+  if (!res.error) showToast('All services seeded from your price list ✓','success');
+}
+
 function renderServicesTable(services) {
-  const tbody = document.getElementById('services-tbody');
+  var tbody = document.getElementById('services-tbody');
   if (!services.length) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">✨</div><h3>No services yet</h3></div></td></tr>`;
+    tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">✨</div><h3>No services yet</h3><p>Click <strong>+ Add Service</strong></p></div></td></tr>';
     return;
   }
-  tbody.innerHTML = services.map(s => `
-    <tr>
-      <td><div style="font-weight:600;font-size:0.83rem">${s.name}</div></td>
-      <td><span class="badge badge-teal">${s.category}</span></td>
-      <td style="font-weight:600;color:var(--gold-dark)">₱${formatNumber(s.price)}</td>
-      <td class="td-muted">${s.duration_minutes} min</td>
-      <td><span class="badge ${s.is_active ? 'badge-green' : 'badge-gray'}">${s.is_active ? 'Active' : 'Inactive'}</span></td>
-      <td>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-outline btn-sm" onclick="editService('${s.id}')">Edit</button>
-          <button class="btn btn-danger btn-sm" onclick="toggleService('${s.id}',${!s.is_active})">${s.is_active ? 'Deactivate' : 'Activate'}</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = services.map(function(s){
+    return '<tr><td><div style="font-weight:600;font-size:0.83rem">'+s.name+'</div></td><td><span class="badge badge-teal">'+s.category+'</span></td><td style="font-weight:600;color:var(--gold-dark)">₱'+formatNumber(s.price)+'</td><td class="td-muted">'+s.duration_minutes+' min</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><div style="display:flex;gap:6px"><button class="btn btn-outline btn-sm" onclick="editService(\''+s.id+'\')">Edit</button><button class="btn btn-ghost btn-sm" onclick="toggleService(\''+s.id+'\','+(!s.is_active)+')">'+(s.is_active?'Deactivate':'Activate')+'</button></div></td></tr>';
+  }).join('');
 }
 
-function openAddServiceModal() {
-  editingServiceId = null;
-  document.getElementById('service-modal-title').textContent = 'Add New Service';
-  document.getElementById('service-form').reset();
-  openModal('service-modal');
+function filterServices(q) {
+  var lq=q.toLowerCase();
+  renderServicesTable(allServices.filter(function(s){return s.name.toLowerCase().includes(lq)||s.category.toLowerCase().includes(lq);}));
 }
-
+function openAddServiceModal() { editingServiceId=null; setText('service-modal-title','Add Service'); document.getElementById('service-form').reset(); openModal('service-modal'); }
 function editService(id) {
-  const s = allServices.find(x => x.id === id);
-  if (!s) return;
-  editingServiceId = id;
-  document.getElementById('service-modal-title').textContent = 'Edit Service';
-  document.getElementById('sf-name').value = s.name;
-  document.getElementById('sf-category').value = s.category;
-  document.getElementById('sf-price').value = s.price;
-  document.getElementById('sf-duration').value = s.duration_minutes;
-  document.getElementById('sf-description').value = s.description || '';
+  var s=allServices.find(function(x){return x.id===id;}); if(!s) return;
+  editingServiceId=id; setText('service-modal-title','Edit Service');
+  setVal('sf-name',s.name); setVal('sf-category',s.category); setVal('sf-price',s.price); setVal('sf-duration',s.duration_minutes); setVal('sf-description',s.description||'');
   openModal('service-modal');
 }
-
 async function saveService() {
-  const data = {
-    name: document.getElementById('sf-name').value.trim(),
-    category: document.getElementById('sf-category').value.trim(),
-    price: parseFloat(document.getElementById('sf-price').value) || 0,
-    duration_minutes: parseInt(document.getElementById('sf-duration').value) || 60,
-    description: document.getElementById('sf-description').value.trim() || null,
-  };
-  
-  if (!data.name || !data.category || !data.price) { showToast('Fill in all required fields', 'error'); return; }
-  
-  if (!supabase) {
-    if (editingServiceId) {
-      const idx = allServices.findIndex(s => s.id === editingServiceId);
-      if (idx > -1) allServices[idx] = { ...allServices[idx], ...data };
-    } else {
-      allServices.push({ id: 'demo-s-' + Date.now(), ...data, is_active: true });
-    }
-    renderServicesTable(allServices);
-    closeModal('service-modal');
-    showToast('Service saved', 'success');
-    return;
+  var data={name:getVal('sf-name').trim(),category:getVal('sf-category').trim(),price:parseFloat(getVal('sf-price'))||0,duration_minutes:parseInt(getVal('sf-duration'))||60,description:getVal('sf-description').trim()||null};
+  if (!data.name||!data.category||!data.price) { showToast('Name, category and price required','error'); return; }
+  if (!_isConnected) {
+    if (editingServiceId) { var i=allServices.findIndex(function(s){return s.id===editingServiceId;}); if(i>-1) allServices[i]={...allServices[i],...data}; }
+    else allServices.unshift({id:'s'+Date.now(),...data,is_active:true});
+    renderServicesTable(allServices); closeModal('service-modal'); showToast('Saved','success'); return;
   }
-  
-  try {
-    if (editingServiceId) {
-      const { error } = await supabase.from('services').update(data).eq('id', editingServiceId);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from('services').insert({ ...data, is_active: true });
-      if (error) throw error;
-    }
-    closeModal('service-modal');
-    showToast('Service saved successfully', 'success');
-    loadServices();
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+  var res=editingServiceId
+    ? await dbQuery(function(db){return db.from('services').update(data).eq('id',editingServiceId);})
+    : await dbQuery(function(db){return db.from('services').insert({...data,is_active:true});});
+  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  closeModal('service-modal'); showToast('Service saved ✓','success'); loadServices();
 }
-
 async function toggleService(id, active) {
-  if (!supabase) {
-    const s = allServices.find(x => x.id === id);
-    if (s) s.is_active = active;
-    renderServicesTable(allServices);
-    return;
-  }
-  try {
-    await supabase.from('services').update({ is_active: active }).eq('id', id);
-    loadServices();
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+  if (!_isConnected) { var s=allServices.find(function(x){return x.id===id;}); if(s){s.is_active=active;renderServicesTable(allServices);} return; }
+  await dbQuery(function(db){return db.from('services').update({is_active:active}).eq('id',id);}); loadServices();
 }
 
-// ---- APPOINTMENTS ----
-let allAppointments = [];
-let selectedDate = new Date();
+// ============================================================
+// APPOINTMENTS
+// ============================================================
+var allAppointments=[], selectedDate=new Date(), editingApptId=null;
 
-async function loadAppointments() {
-  renderDateStrip();
-  await fetchAppointmentsForDate(selectedDate);
-}
-
+async function loadAppointments() { renderDateStrip(); await fetchAppointmentsForDate(selectedDate); }
 function renderDateStrip() {
-  const strip = document.getElementById('date-strip');
-  const today = new Date();
-  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let html = '';
-  for (let i = -3; i <= 7; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const isActive = d.toDateString() === selectedDate.toDateString();
-    html += `
-      <div class="date-chip ${isActive ? 'active' : ''}" onclick="selectDate(${d.getTime()})">
-        <span class="day">${days[d.getDay()]}</span>
-        <span class="num">${d.getDate()}</span>
-      </div>
-    `;
-  }
-  strip.innerHTML = html;
+  var strip=document.getElementById('date-strip'), days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], today=new Date(), html='';
+  for (var i=-2;i<=9;i++) { var d=new Date(today); d.setDate(today.getDate()+i); var active=d.toDateString()===selectedDate.toDateString(); html+='<div class="date-chip '+(active?'active':'')+'" onclick="selectDate('+d.getTime()+')"><span class="day">'+days[d.getDay()]+'</span><span class="num">'+d.getDate()+'</span></div>'; }
+  strip.innerHTML=html;
 }
-
-function selectDate(ts) {
-  selectedDate = new Date(ts);
-  renderDateStrip();
-  fetchAppointmentsForDate(selectedDate);
-}
-
+function selectDate(ts) { selectedDate=new Date(ts); renderDateStrip(); fetchAppointmentsForDate(selectedDate); }
 async function fetchAppointmentsForDate(date) {
-  const dateStr = date.toISOString().split('T')[0];
-  document.getElementById('appt-date-label').textContent = date.toLocaleDateString('en-PH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  
-  if (!supabase) { renderDemoAppointments(); return; }
-  
-  try {
-    const { data, error } = await supabase.from('appointments')
-      .select('*').eq('appointment_date', dateStr).order('appointment_time');
-    if (error) throw error;
-    allAppointments = data || [];
-    renderAppointments(allAppointments);
-  } catch(e) {
-    renderDemoAppointments();
-  }
+  var dateStr=date.toISOString().split('T')[0];
+  setText('appt-date-label', date.toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'}));
+  document.getElementById('appointments-list').innerHTML='<div class="loading-spinner"></div>';
+  var res=await dbQuery(function(db){return db.from('appointments').select('*').eq('appointment_date',dateStr).order('appointment_time');});
+  if (res.error && !_isConnected) { renderDemoAppointments(); return; }
+  allAppointments=res.data||[];
+  renderAppointments(allAppointments);
 }
-
 function renderDemoAppointments() {
-  allAppointments = [
-    { id: 'a1', client_name: 'Maria Santos', client_phone: '0917-123-4567', service_name: 'Korean Black Pearl', appointment_time: '13:00', status: 'confirmed', amount: 1800 },
-    { id: 'a2', client_name: 'Ana Reyes', client_phone: '0918-987-6543', service_name: 'Brazilian Waxing', appointment_time: '14:30', status: 'pending', amount: 800 },
-    { id: 'a3', client_name: 'Carla Dela Cruz', client_phone: '0919-555-1234', service_name: 'Meso Acne', appointment_time: '16:00', status: 'confirmed', amount: 1500 },
-    { id: 'a4', client_name: 'Lisa Flores', client_phone: '0920-111-2222', service_name: 'Diamond Peel', appointment_time: '18:00', status: 'completed', amount: 500 },
+  allAppointments=[
+    {id:'a1',client_name:'Maria Santos',client_phone:'0917-123-4567',service_name:'Korean Black Pearl',appointment_time:'13:00',status:'confirmed',amount:1800},
+    {id:'a2',client_name:'Ana Reyes',client_phone:'0918-987-6543',service_name:'Brazilian Waxing',appointment_time:'14:30',status:'pending',amount:800},
+    {id:'a3',client_name:'Carla Dela Cruz',client_phone:'0919-555-1234',service_name:'Meso Acne',appointment_time:'16:00',status:'confirmed',amount:1500},
+    {id:'a4',client_name:'Lisa Flores',client_phone:'0920-111-2222',service_name:'Diamond Peel',appointment_time:'18:00',status:'completed',amount:500},
   ];
   renderAppointments(allAppointments);
 }
-
 function renderAppointments(appts) {
-  const list = document.getElementById('appointments-list');
-  if (!appts.length) {
-    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><h3>No appointments</h3><p>No bookings for this day</p></div>';
-    return;
-  }
-  list.innerHTML = appts.map(a => `
-    <div class="appt-card ${a.status}">
-      <div class="appt-time">${formatTime(a.appointment_time)}</div>
-      <div class="appt-info">
-        <div class="appt-client">${a.client_name}</div>
-        <div class="appt-service">${a.service_name} • ${a.client_phone || 'No phone'}</div>
-      </div>
-      <span class="badge ${a.status === 'confirmed' ? 'badge-green' : a.status === 'completed' ? 'badge-gray' : a.status === 'cancelled' ? 'badge-red' : 'badge-orange'}">${capitalize(a.status)}</span>
-      <div class="appt-amount">₱${formatNumber(a.amount || 0)}</div>
-      <div style="display:flex;gap:6px">
-        ${a.status !== 'completed' && a.status !== 'cancelled' ? `
-          <button class="btn btn-outline btn-sm" onclick="updateApptStatus('${a.id}','confirmed')">✓</button>
-          <button class="btn btn-danger btn-sm" onclick="updateApptStatus('${a.id}','cancelled')">✕</button>
-        ` : ''}
-        <button class="btn btn-ghost btn-sm" onclick="editAppointment('${a.id}')">Edit</button>
-      </div>
-    </div>
-  `).join('');
+  var list=document.getElementById('appointments-list');
+  if (!appts.length) { list.innerHTML='<div class="empty-state"><div class="empty-icon">📅</div><h3>No appointments</h3><p>No bookings for this day. Click <strong>+ New Appointment</strong>.</p></div>'; return; }
+  list.innerHTML=appts.map(function(a){
+    var badgeCls=a.status==='confirmed'?'badge-green':a.status==='completed'?'badge-gray':a.status==='cancelled'?'badge-red':'badge-orange';
+    var btns=(a.status!=='completed'&&a.status!=='cancelled')?'<button class="btn btn-outline btn-sm" onclick="updateApptStatus(\''+a.id+'\',\'confirmed\')">✓</button><button class="btn btn-danger btn-sm" onclick="updateApptStatus(\''+a.id+'\',\'cancelled\')">✕</button>':'';
+    return '<div class="appt-card '+a.status+'"><div class="appt-time">'+formatTime(a.appointment_time)+'</div><div class="appt-info"><div class="appt-client">'+a.client_name+'</div><div class="appt-service">'+(a.service_name||'No service')+' • '+(a.client_phone||'No phone')+'</div></div><span class="badge '+badgeCls+'">'+capitalize(a.status)+'</span><div class="appt-amount">₱'+formatNumber(a.amount||0)+'</div><div style="display:flex;gap:6px">'+btns+'<button class="btn btn-ghost btn-sm" onclick="editAppointment(\''+a.id+'\')">Edit</button></div></div>';
+  }).join('');
 }
-
 async function updateApptStatus(id, status) {
-  if (!supabase) {
-    const a = allAppointments.find(x => x.id === id);
-    if (a) a.status = status;
-    renderAppointments(allAppointments);
-    showToast(`Appointment ${status}`, 'success');
-    return;
-  }
-  try {
-    await supabase.from('appointments').update({ status }).eq('id', id);
-    showToast(`Appointment ${status}`, 'success');
-    fetchAppointmentsForDate(selectedDate);
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+  if (!_isConnected) { var a=allAppointments.find(function(x){return x.id===id;}); if(a){a.status=status;renderAppointments(allAppointments);} showToast('Updated','success'); return; }
+  var res=await dbQuery(function(db){return db.from('appointments').update({status}).eq('id',id);});
+  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  showToast('Updated ✓','success'); fetchAppointmentsForDate(selectedDate);
 }
-
 function openAddAppointmentModal() {
-  editingApptId = null;
-  document.getElementById('appt-modal-title').textContent = 'New Appointment';
-  document.getElementById('appt-form').reset();
-  document.getElementById('af-date').value = selectedDate.toISOString().split('T')[0];
-  populateServiceSelect();
-  openModal('appt-modal');
+  editingApptId=null; setText('appt-modal-title','New Appointment'); document.getElementById('appt-form').reset();
+  setVal('af-date',selectedDate.toISOString().split('T')[0]); setVal('af-status','pending');
+  populateServiceSelect(); openModal('appt-modal');
 }
-
-let editingApptId = null;
 function editAppointment(id) {
-  const a = allAppointments.find(x => x.id === id);
-  if (!a) return;
-  editingApptId = id;
-  document.getElementById('appt-modal-title').textContent = 'Edit Appointment';
-  document.getElementById('af-client').value = a.client_name;
-  document.getElementById('af-phone').value = a.client_phone || '';
-  document.getElementById('af-date').value = a.appointment_date || selectedDate.toISOString().split('T')[0];
-  document.getElementById('af-time').value = a.appointment_time;
-  document.getElementById('af-amount').value = a.amount || '';
-  document.getElementById('af-status').value = a.status;
-  document.getElementById('af-notes').value = a.notes || '';
-  populateServiceSelect(a.service_id);
-  openModal('appt-modal');
+  var a=allAppointments.find(function(x){return x.id===id;}); if(!a) return;
+  editingApptId=id; setText('appt-modal-title','Edit Appointment');
+  setVal('af-client',a.client_name); setVal('af-phone',a.client_phone||''); setVal('af-date',a.appointment_date||selectedDate.toISOString().split('T')[0]);
+  setVal('af-time',a.appointment_time); setVal('af-amount',a.amount||''); setVal('af-status',a.status); setVal('af-notes',a.notes||'');
+  populateServiceSelect(a.service_id); openModal('appt-modal');
 }
-
-function populateServiceSelect(selectedId = null) {
-  const sel = document.getElementById('af-service');
-  sel.innerHTML = '<option value="">Select service...</option>' +
-    allServices.filter(s => s.is_active).map(s =>
-      `<option value="${s.id}" data-price="${s.price}" ${s.id === selectedId ? 'selected' : ''}>${s.name} — ₱${formatNumber(s.price)}</option>`
-    ).join('');
-  sel.onchange = () => {
-    const opt = sel.options[sel.selectedIndex];
-    if (opt && opt.dataset.price) document.getElementById('af-amount').value = opt.dataset.price;
-  };
+function populateServiceSelect(selectedId) {
+  var sel=document.getElementById('af-service');
+  sel.innerHTML='<option value="">— Select service —</option>'+allServices.filter(function(s){return s.is_active;}).map(function(s){return '<option value="'+s.id+'" data-price="'+s.price+'"'+(s.id===selectedId?' selected':'')+'>'+s.name+' — ₱'+formatNumber(s.price)+'</option>';}).join('');
+  sel.onchange=function(){var opt=sel.options[sel.selectedIndex]; if(opt&&opt.dataset.price) setVal('af-amount',opt.dataset.price);};
 }
-
 async function saveAppointment() {
-  const serviceEl = document.getElementById('af-service');
-  const serviceOpt = serviceEl.options[serviceEl.selectedIndex];
-  
-  const data = {
-    client_name: document.getElementById('af-client').value.trim(),
-    client_phone: document.getElementById('af-phone').value.trim() || null,
-    service_id: serviceEl.value || null,
-    service_name: serviceOpt && serviceOpt.value ? serviceOpt.text.split(' — ')[0] : null,
-    appointment_date: document.getElementById('af-date').value,
-    appointment_time: document.getElementById('af-time').value,
-    amount: parseFloat(document.getElementById('af-amount').value) || 0,
-    status: document.getElementById('af-status').value,
-    notes: document.getElementById('af-notes').value.trim() || null
-  };
-  
-  if (!data.client_name || !data.appointment_date || !data.appointment_time) {
-    showToast('Client name, date, and time are required', 'error'); return;
+  var sel=document.getElementById('af-service'), sOpt=sel.options[sel.selectedIndex];
+  var data={client_name:getVal('af-client').trim(),client_phone:getVal('af-phone').trim()||null,service_id:sel.value||null,service_name:(sel.value&&sOpt)?sOpt.text.split(' — ')[0].trim():null,appointment_date:getVal('af-date'),appointment_time:getVal('af-time'),amount:parseFloat(getVal('af-amount'))||0,status:getVal('af-status'),notes:getVal('af-notes').trim()||null};
+  if (!data.client_name||!data.appointment_date||!data.appointment_time) { showToast('Client name, date and time required','error'); return; }
+  if (!_isConnected) {
+    if (editingApptId) { var i=allAppointments.findIndex(function(a){return a.id===editingApptId;}); if(i>-1) allAppointments[i]={...allAppointments[i],...data}; }
+    else allAppointments.push({id:'a'+Date.now(),...data});
+    allAppointments.sort(function(a,b){return a.appointment_time.localeCompare(b.appointment_time);});
+    renderAppointments(allAppointments); closeModal('appt-modal'); showToast('Saved (demo)','success'); return;
   }
-  
-  if (!supabase) {
-    if (editingApptId) {
-      const idx = allAppointments.findIndex(a => a.id === editingApptId);
-      if (idx > -1) allAppointments[idx] = { ...allAppointments[idx], ...data };
-    } else {
-      allAppointments.push({ id: 'a-' + Date.now(), ...data });
-    }
-    renderAppointments(allAppointments);
-    closeModal('appt-modal');
-    showToast('Appointment saved', 'success');
-    return;
-  }
-  
-  try {
-    if (editingApptId) {
-      const { error } = await supabase.from('appointments').update(data).eq('id', editingApptId);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from('appointments').insert(data);
-      if (error) throw error;
-    }
-    closeModal('appt-modal');
-    showToast('Appointment saved', 'success');
-    fetchAppointmentsForDate(selectedDate);
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+  var res=editingApptId?await dbQuery(function(db){return db.from('appointments').update(data).eq('id',editingApptId);}):await dbQuery(function(db){return db.from('appointments').insert(data);});
+  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  closeModal('appt-modal'); showToast('Appointment saved ✓','success'); fetchAppointmentsForDate(selectedDate);
 }
 
-// ---- SALES / POS ----
-let posCart = [];
-let allSales = [];
-
+// ============================================================
+// SALES / POS
+// ============================================================
+var posCart=[], allSales=[];
 async function loadSales() {
-  populatePOSServiceList();
-  loadSalesHistory();
+  if (!allServices.length) await loadServices();
+  populatePOSServiceList(''); renderCart(); loadSalesHistory();
 }
-
-function populatePOSServiceList() {
-  const list = document.getElementById('pos-services');
-  list.innerHTML = allServices.filter(s => s.is_active).map(s => `
-    <div class="pos-service-item" onclick="addToCart('${s.id}','${escHtml(s.name)}',${s.price})">
-      <div style="font-weight:600;font-size:0.82rem">${s.name}</div>
-      <div style="color:var(--gold-dark);font-weight:600;margin-top:2px">₱${formatNumber(s.price)}</div>
-      <div style="font-size:0.7rem;color:var(--gray)">${s.category}</div>
-    </div>
-  `).join('');
+function populatePOSServiceList(category) {
+  var list=document.getElementById('pos-services');
+  var svcs=allServices.filter(function(s){return s.is_active&&(!category||s.category===category);});
+  if (!svcs.length) { list.innerHTML='<p class="td-muted" style="padding:20px;text-align:center">No services here</p>'; return; }
+  list.innerHTML=svcs.map(function(s){return '<div class="pos-service-item" onclick="addToCart(\''+s.id+'\',\''+esc(s.name)+'\','+s.price+')"><div style="font-weight:600;font-size:0.82rem">'+s.name+'</div><div style="color:var(--gold-dark);font-weight:700;margin-top:3px">₱'+formatNumber(s.price)+'</div><div style="font-size:0.68rem;color:var(--gray);margin-top:2px">'+s.category+'</div></div>';}).join('');
 }
-
-function addToCart(id, name, price) {
-  const existing = posCart.find(c => c.id === id);
-  if (existing) {
-    existing.qty++;
-  } else {
-    posCart.push({ id, name, price, qty: 1 });
-  }
-  renderCart();
-}
-
+function filterPOS(btn, category) { document.querySelectorAll('.pos-cat-btn').forEach(function(b){b.classList.remove('active');}); btn.classList.add('active'); populatePOSServiceList(category); }
+function addToCart(id,name,price) { var e=posCart.find(function(c){return c.id===id;}); e?e.qty++:posCart.push({id,name,price,qty:1}); renderCart(); }
+function removeFromCart(idx) { posCart.splice(idx,1); renderCart(); }
+function clearCart() { posCart=[]; setVal('pos-client',''); setVal('pos-discount',''); renderCart(); }
 function renderCart() {
-  const cartList = document.getElementById('cart-list');
-  const total = posCart.reduce((s, i) => s + i.price * i.qty, 0);
-  const discount = parseFloat(document.getElementById('pos-discount').value) || 0;
-  const finalTotal = Math.max(0, total - discount);
-  
-  if (!posCart.length) {
-    cartList.innerHTML = '<div class="empty-state" style="padding:30px"><div class="empty-icon">🛒</div><p>Select services above</p></div>';
-  } else {
-    cartList.innerHTML = posCart.map((item, idx) => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(201,151,28,0.08)">
-        <div style="flex:1">
-          <div style="font-size:0.82rem;font-weight:500">${item.name}</div>
-          <div style="font-size:0.72rem;color:var(--gray)">₱${formatNumber(item.price)} × ${item.qty}</div>
-        </div>
-        <div style="font-weight:600;color:var(--dark);font-size:0.82rem">₱${formatNumber(item.price * item.qty)}</div>
-        <button onclick="removeFromCart(${idx})" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:1rem">×</button>
-      </div>
-    `).join('');
-  }
-  
-  document.getElementById('cart-subtotal').textContent = '₱' + formatNumber(total);
-  document.getElementById('cart-discount').textContent = '₱' + formatNumber(discount);
-  document.getElementById('cart-total').textContent = '₱' + formatNumber(finalTotal);
+  var cartList=document.getElementById('cart-list');
+  var subtotal=posCart.reduce(function(s,i){return s+i.price*i.qty;},0);
+  var discount=parseFloat(getVal('pos-discount'))||0, total=Math.max(0,subtotal-discount);
+  if (!posCart.length) { cartList.innerHTML='<div class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:2rem">🛒</div><p style="font-size:0.78rem">Tap a service to add</p></div>'; }
+  else { cartList.innerHTML=posCart.map(function(item,idx){return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(201,151,28,0.08)"><div style="flex:1"><div style="font-size:0.82rem;font-weight:500">'+item.name+'</div><div style="font-size:0.7rem;color:var(--gray)">₱'+formatNumber(item.price)+' × '+item.qty+'</div></div><div style="font-weight:600;color:var(--dark);font-size:0.82rem;white-space:nowrap">₱'+formatNumber(item.price*item.qty)+'</div><button onclick="removeFromCart('+idx+')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:1.1rem;line-height:1;padding:2px 4px">×</button></div>';}).join(''); }
+  setText('cart-subtotal','₱'+formatNumber(subtotal)); setText('cart-discount','₱'+formatNumber(discount)); setText('cart-total','₱'+formatNumber(total));
 }
-
-function removeFromCart(idx) {
-  posCart.splice(idx, 1);
-  renderCart();
-}
-
-function clearCart() {
-  posCart = [];
-  document.getElementById('pos-client').value = '';
-  document.getElementById('pos-discount').value = '';
-  renderCart();
-}
-
 async function processSale() {
-  const clientName = document.getElementById('pos-client').value.trim() || 'Walk-in Client';
-  const discount = parseFloat(document.getElementById('pos-discount').value) || 0;
-  const payMethod = document.getElementById('pos-payment').value;
-  
-  if (!posCart.length) { showToast('Add services to cart first', 'error'); return; }
-  
-  const subtotal = posCart.reduce((s, i) => s + i.price * i.qty, 0);
-  const total = Math.max(0, subtotal - discount);
-  
-  const saleData = {
-    client_name: clientName,
-    items: posCart,
-    subtotal,
-    discount,
-    total,
-    payment_method: payMethod,
-    status: 'completed'
-  };
-  
-  if (!supabase) {
-    allSales.unshift({ id: 'sale-' + Date.now(), ...saleData, created_at: new Date().toISOString() });
-    showToast(`Sale of ₱${formatNumber(total)} processed for ${clientName}!`, 'success');
-    clearCart();
-    document.getElementById('sales-tab-2').click();
-    loadSalesHistory();
-    return;
-  }
-  
-  try {
-    const { error } = await supabase.from('sales').insert(saleData);
-    if (error) throw error;
-    showToast(`Sale processed — ₱${formatNumber(total)}`, 'success');
-    clearCart();
-    loadSalesHistory();
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
+  var clientName=getVal('pos-client').trim()||'Walk-in Client', discount=parseFloat(getVal('pos-discount'))||0, payMethod=getVal('pos-payment');
+  if (!posCart.length) { showToast('Add services first','error'); return; }
+  var subtotal=posCart.reduce(function(s,i){return s+i.price*i.qty;},0), total=Math.max(0,subtotal-discount);
+  var saleData={client_name:clientName,items:posCart,subtotal,discount,total,payment_method:payMethod,status:'completed'};
+  if (!_isConnected) { allSales.unshift({id:'sale'+Date.now(),...saleData,created_at:new Date().toISOString()}); showToast('₱'+formatNumber(total)+' sale for '+clientName+' ✓','success'); clearCart(); return; }
+  var res=await dbQuery(function(db){return db.from('sales').insert(saleData);});
+  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  showToast('₱'+formatNumber(total)+' processed ✓','success'); clearCart(); loadSalesHistory();
 }
-
 async function loadSalesHistory() {
-  const tbody = document.getElementById('sales-tbody');
-  
-  if (!supabase) {
-    renderSalesTable(allSales.length ? allSales : getDemoSales());
-    return;
-  }
-  
-  try {
-    const { data } = await supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(50);
-    allSales = data || [];
-    renderSalesTable(allSales);
-  } catch(e) {
-    renderSalesTable(getDemoSales());
-  }
+  document.getElementById('sales-tbody').innerHTML=loadingRow(6);
+  var res=await dbQuery(function(db){return db.from('sales').select('*').order('created_at',{ascending:false}).limit(50);});
+  var sales=(res.data&&!res.error)?res.data:allSales.length?allSales:getDemoSales();
+  renderSalesTable(sales);
 }
-
 function getDemoSales() {
   return [
-    { id: 'ds1', client_name: 'Maria Santos', items: [{name:'Korean Black Pearl',qty:1,price:1800}], total: 1800, discount: 0, payment_method: 'gcash', created_at: new Date().toISOString() },
-    { id: 'ds2', client_name: 'Ana Reyes', items: [{name:'Brazilian Waxing',qty:1,price:800}], total: 750, discount: 50, payment_method: 'cash', created_at: new Date(Date.now() - 86400000).toISOString() },
-    { id: 'ds3', client_name: 'Carla Dela Cruz', items: [{name:'Meso Acne',qty:1,price:1500},{name:'Diamond Peel',qty:1,price:500}], total: 2000, discount: 0, payment_method: 'card', created_at: new Date(Date.now() - 172800000).toISOString() },
+    {id:'ds1',client_name:'Maria Santos',items:[{name:'Korean Black Pearl',qty:1,price:1800}],total:1800,discount:0,payment_method:'gcash',created_at:new Date().toISOString()},
+    {id:'ds2',client_name:'Ana Reyes',items:[{name:'Brazilian Waxing',qty:1,price:800}],total:750,discount:50,payment_method:'cash',created_at:new Date(Date.now()-86400000).toISOString()},
+    {id:'ds3',client_name:'Carla Dela Cruz',items:[{name:'Meso Acne',qty:1,price:1500},{name:'Diamond Peel',qty:1,price:500}],total:2000,discount:0,payment_method:'card',created_at:new Date(Date.now()-172800000).toISOString()},
   ];
 }
-
 function renderSalesTable(sales) {
-  const tbody = document.getElementById('sales-tbody');
-  if (!sales.length) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">💰</div><h3>No sales yet</h3></div></td></tr>`;
-    return;
-  }
-  tbody.innerHTML = sales.map(s => `
-    <tr>
-      <td class="td-muted">${formatDate(s.created_at)}</td>
-      <td style="font-weight:500">${s.client_name}</td>
-      <td class="td-muted">${Array.isArray(s.items) ? s.items.map(i => i.name).join(', ') : JSON.stringify(s.items)}</td>
-      <td style="font-weight:600;color:var(--gold-dark)">₱${formatNumber(s.total)}</td>
-      <td><span class="badge badge-teal">${capitalize(s.payment_method || 'cash')}</span></td>
-      <td><span class="badge badge-green">Completed</span></td>
-    </tr>
-  `).join('');
+  var tbody=document.getElementById('sales-tbody');
+  if (!sales.length) { tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">💰</div><h3>No sales yet</h3><p>Process a sale from the <strong>New Sale</strong> tab</p></div></td></tr>'; return; }
+  tbody.innerHTML=sales.map(function(s){var items=Array.isArray(s.items)?s.items.map(function(i){return i.name;}).join(', '):'—'; return '<tr><td class="td-muted">'+formatDate(s.created_at)+'</td><td style="font-weight:500">'+s.client_name+'</td><td class="td-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+items+'">'+items+'</td><td style="font-weight:700;color:var(--gold-dark)">₱'+formatNumber(s.total)+'</td><td><span class="badge badge-teal">'+capitalize(s.payment_method||'cash')+'</span></td><td><span class="badge badge-green">Completed</span></td></tr>';}).join('');
 }
 
-// ---- REPORTS ----
+// ============================================================
+// REPORTS
+// ============================================================
 async function loadReports() {
-  if (!supabase) { renderDemoReports(); return; }
-  
-  try {
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-    
-    const [{ data: sales }, { data: appts }, { count: totalProd }] = await Promise.all([
-      supabase.from('sales').select('total, created_at').gte('created_at', startOfMonth.toISOString()),
-      supabase.from('appointments').select('status, amount').gte('appointment_date', startOfMonth.toISOString().split('T')[0]),
-      supabase.from('products').select('*', { count: 'exact', head: true }).eq('is_active', true)
-    ]);
-    
-    const monthRevenue = (sales || []).reduce((s, r) => s + (r.total || 0), 0);
-    const completedAppts = (appts || []).filter(a => a.status === 'completed').length;
-    const totalAppts = (appts || []).length;
-    
-    updateReportMetrics(monthRevenue, completedAppts, totalAppts, totalProd || 0);
-    renderRevenueChart(sales || []);
-    renderTopServices(appts || []);
-  } catch(e) {
-    renderDemoReports();
-  }
+  if (!_isConnected) { renderDemoReports(); return; }
+  var startOfMonth=new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0,0,0,0);
+  var dateStr=startOfMonth.toISOString().split('T')[0];
+  var [sRes,aRes,pRes]=await Promise.all([
+    dbQuery(function(db){return db.from('sales').select('total,created_at').gte('created_at',startOfMonth.toISOString());}),
+    dbQuery(function(db){return db.from('appointments').select('status,service_name,amount').gte('appointment_date',dateStr);}),
+    dbQuery(function(db){return db.from('products').select('id',{count:'exact',head:true}).eq('is_active',true);}),
+  ]);
+  var sales=sRes.data||[], appts=aRes.data||[];
+  var monthRev=sales.reduce(function(s,r){return s+(parseFloat(r.total)||0);},0);
+  var completed=appts.filter(function(a){return a.status==='completed';}).length;
+  setText('rpt-revenue','₱'+formatNumber(monthRev)); setText('rpt-completed',completed); setText('rpt-total-appts',appts.length); setText('rpt-products',pRes.count||0);
+  renderRevenueBarChart(sales); renderTopServices(appts);
 }
-
 function renderDemoReports() {
-  updateReportMetrics(52500, 38, 45, 47);
-  renderDemoChart();
+  setText('rpt-revenue','₱52,500'); setText('rpt-completed',38); setText('rpt-total-appts',45); setText('rpt-products',47);
+  var canvas=document.getElementById('rpt-revenue-chart'); if(!canvas) return;
+  canvas.width=canvas.offsetWidth||400;
+  drawBarChart(canvas.getContext('2d'),canvas.width,200,['1','2','3','4','5','6','7','8','9','10'],[4200,6100,3800,7500,5400,9200,4700,6800,8100,7400]);
+  renderTopServices([]);
+}
+function renderRevenueBarChart(sales) {
+  var canvas=document.getElementById('rpt-revenue-chart'); if(!canvas||!sales.length) { renderDemoReports(); return; }
+  canvas.width=canvas.offsetWidth||400;
+  var groups={};
+  sales.forEach(function(s){var d=new Date(s.created_at).getDate().toString(); groups[d]=(groups[d]||0)+(parseFloat(s.total)||0);});
+  var days=Object.keys(groups).sort(function(a,b){return +a-+b;});
+  drawBarChart(canvas.getContext('2d'),canvas.width,200,days,days.map(function(d){return groups[d];}));
+}
+function renderTopServices(appts) {
+  var counts={};
+  appts.forEach(function(a){if(a.service_name) counts[a.service_name]=(counts[a.service_name]||0)+1;});
+  var sorted=Object.entries(counts).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
+  var el=document.getElementById('top-services-list');
+  el.innerHTML=sorted.length?sorted.map(function(e){return '<div class="report-metric"><span class="report-metric-label">'+e[0]+'</span><span class="badge badge-teal">'+e[1]+' bookings</span></div>';}).join(''):
+    '<div class="report-metric"><span class="report-metric-label">Korean Black Pearl</span><span class="badge badge-gold">₱1,800</span></div><div class="report-metric"><span class="report-metric-label">Exilis Tummy</span><span class="badge badge-gold">₱2,000</span></div><div class="report-metric"><span class="report-metric-label">Meso Acne</span><span class="badge badge-teal">₱1,500</span></div><div class="report-metric"><span class="report-metric-label">Brazilian Waxing</span><span class="badge badge-teal">₱800</span></div><div class="report-metric"><span class="report-metric-label">Diamond Peel</span><span class="badge badge-green">₱500</span></div>';
 }
 
-function updateReportMetrics(revenue, completed, total, products) {
-  document.getElementById('rpt-revenue').textContent = '₱' + formatNumber(revenue);
-  document.getElementById('rpt-completed').textContent = completed;
-  document.getElementById('rpt-total-appts').textContent = total;
-  document.getElementById('rpt-products').textContent = products;
-}
-
-function renderDemoChart() {
-  const canvas = document.getElementById('revenue-chart');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const days = Array.from({length: 7}, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - (6 - i));
-    return d.toLocaleDateString('en', { weekday: 'short' });
-  });
-  const values = [3200, 4500, 2800, 6700, 5100, 8900, 7200];
-  drawBarChart(ctx, canvas.width, canvas.height, days, values);
-}
-
-function drawBarChart(ctx, w, h, labels, values) {
-  ctx.clearRect(0, 0, w, h);
-  const max = Math.max(...values) * 1.1;
-  const pad = { top: 20, right: 20, bottom: 40, left: 60 };
-  const chartW = w - pad.left - pad.right;
-  const chartH = h - pad.top - pad.bottom;
-  const barW = (chartW / labels.length) * 0.6;
-  const gap = chartW / labels.length;
-  
-  ctx.strokeStyle = 'rgba(201,151,28,0.1)';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const y = pad.top + chartH - (i / 4) * chartH;
-    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
-    ctx.fillStyle = 'rgba(107,101,96,0.6)';
-    ctx.font = '11px Jost, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText('₱' + formatNumber((i / 4) * max / 1000, 0) + 'k', pad.left - 6, y + 4);
-  }
-  
-  labels.forEach((label, i) => {
-    const x = pad.left + i * gap + gap / 2;
-    const barH = (values[i] / max) * chartH;
-    const y = pad.top + chartH - barH;
-    
-    const grad = ctx.createLinearGradient(0, y, 0, y + barH);
-    grad.addColorStop(0, '#E8B94F');
-    grad.addColorStop(1, '#9A7213');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(x - barW / 2, y, barW, barH, 4);
-    ctx.fill();
-    
-    ctx.fillStyle = 'rgba(44,36,22,0.7)';
-    ctx.font = '11px Jost, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(label, x, h - pad.bottom / 2 + 4);
-  });
-}
-
-// ---- SUPPLIERS ----
-let allSuppliers = [];
-
+// ============================================================
+// SUPPLIERS
+// ============================================================
+var allSuppliers=[], editingSuppId=null;
 async function loadSuppliers() {
-  if (!supabase) { renderDemoSuppliers(); return; }
-  try {
-    const { data } = await supabase.from('suppliers').select('*').order('name');
-    allSuppliers = data || [];
-    renderSuppliersTable(allSuppliers);
-  } catch(e) { renderDemoSuppliers(); }
-}
-
-function renderDemoSuppliers() {
-  allSuppliers = [
-    { id: 'sup1', name: 'Beauty Supplies Co.', contact_person: 'Ms. Rivera', phone: '02-8123-4567', email: 'orders@beautysupplies.ph', is_active: true },
-    { id: 'sup2', name: 'Hair Removal PH', contact_person: 'Mr. Santos', phone: '0917-456-7890', email: 'sales@hairremoval.ph', is_active: true },
-    { id: 'sup3', name: 'Glow Essentials', contact_person: 'Ms. Dela Cruz', phone: '0918-111-2222', email: 'glow@essentials.ph', is_active: true },
-    { id: 'sup4', name: 'Nail World PH', contact_person: 'Ms. Flores', phone: '0919-333-4444', email: 'nailworld@ph.com', is_active: true },
-  ];
+  document.getElementById('suppliers-tbody').innerHTML=loadingRow(6);
+  var res=await dbQuery(function(db){return db.from('suppliers').select('*').order('name');});
+  allSuppliers=(res.data&&!res.error)?res.data:getDemoSuppliers();
   renderSuppliersTable(allSuppliers);
 }
-
+function getDemoSuppliers(){return [{id:'sup1',name:'Beauty Supplies Co.',contact_person:'Ms. Rivera',phone:'02-8123-4567',email:'orders@beautysupplies.ph',is_active:true},{id:'sup2',name:'Hair Removal PH',contact_person:'Mr. Santos',phone:'0917-456-7890',email:'sales@hairremoval.ph',is_active:true},{id:'sup3',name:'Glow Essentials',contact_person:'Ms. Dela Cruz',phone:'0918-111-2222',email:'glow@essentials.ph',is_active:true},{id:'sup4',name:'Nail World PH',contact_person:'Ms. Flores',phone:'0919-333-4444',email:'nailworld@ph.com',is_active:true}];}
 function renderSuppliersTable(suppliers) {
-  const tbody = document.getElementById('suppliers-tbody');
-  tbody.innerHTML = suppliers.map(s => `
-    <tr>
-      <td style="font-weight:600">${s.name}</td>
-      <td class="td-muted">${s.contact_person || '—'}</td>
-      <td class="td-muted">${s.phone || '—'}</td>
-      <td class="td-muted">${s.email || '—'}</td>
-      <td><span class="badge ${s.is_active ? 'badge-green' : 'badge-gray'}">${s.is_active ? 'Active' : 'Inactive'}</span></td>
-      <td>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-outline btn-sm" onclick="editSupplier('${s.id}')">Edit</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  var tbody=document.getElementById('suppliers-tbody');
+  if (!suppliers.length) { tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🚚</div><h3>No suppliers yet</h3><p>Click <strong>+ Add Supplier</strong></p></div></td></tr>'; return; }
+  tbody.innerHTML=suppliers.map(function(s){return '<tr><td style="font-weight:600">'+s.name+'</td><td class="td-muted">'+(s.contact_person||'—')+'</td><td class="td-muted">'+(s.phone||'—')+'</td><td class="td-muted">'+(s.email||'—')+'</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="editSupplier(\''+s.id+'\')">Edit</button></td></tr>';}).join('');
 }
+function openAddSupplierModal(){editingSuppId=null;setText('supplier-modal-title','Add Supplier');document.getElementById('supplier-form').reset();openModal('supplier-modal');}
+function editSupplier(id){var s=allSuppliers.find(function(x){return x.id===id;});if(!s)return;editingSuppId=id;setText('supplier-modal-title','Edit Supplier');setVal('supf-name',s.name);setVal('supf-contact',s.contact_person||'');setVal('supf-phone',s.phone||'');setVal('supf-email',s.email||'');setVal('supf-address',s.address||'');openModal('supplier-modal');}
+async function saveSupplier(){var data={name:getVal('supf-name').trim(),contact_person:getVal('supf-contact').trim()||null,phone:getVal('supf-phone').trim()||null,email:getVal('supf-email').trim()||null,address:getVal('supf-address').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingSuppId){var i=allSuppliers.findIndex(function(s){return s.id===editingSuppId;});if(i>-1)allSuppliers[i]={...allSuppliers[i],...data};}else allSuppliers.push({id:'sup'+Date.now(),...data,is_active:true});renderSuppliersTable(allSuppliers);closeModal('supplier-modal');showToast('Saved','success');return;}var res=editingSuppId?await dbQuery(function(db){return db.from('suppliers').update(data).eq('id',editingSuppId);}):await dbQuery(function(db){return db.from('suppliers').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('supplier-modal');showToast('Saved ✓','success');loadSuppliers();}
 
-let editingSupplierId = null;
-function openAddSupplierModal() {
-  editingSupplierId = null;
-  document.getElementById('supplier-modal-title').textContent = 'Add Supplier';
-  document.getElementById('supplier-form').reset();
-  openModal('supplier-modal');
-}
+// ============================================================
+// STAFF
+// ============================================================
+var allStaff=[], editingStaffId=null;
+async function loadStaff(){document.getElementById('staff-tbody').innerHTML=loadingRow(6);var res=await dbQuery(function(db){return db.from('staff').select('*').order('name');});allStaff=(res.data&&!res.error)?res.data:getDemoStaff();renderStaffTable(allStaff);}
+function getDemoStaff(){return [{id:'st1',name:'Meera',role:'Owner / Aesthetician',phone:'09993962841',email:'meera@panemorfi.ph',is_active:true},{id:'st2',name:'Ana Cruz',role:'Nail Technician',phone:'0918-111-2222',email:'',is_active:true},{id:'st3',name:'Rica Santos',role:'Skin Therapist',phone:'0919-333-4444',email:'',is_active:true}];}
+function renderStaffTable(staff){var tbody=document.getElementById('staff-tbody');if(!staff.length){tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div><h3>No staff yet</h3></div></td></tr>';return;}tbody.innerHTML=staff.map(function(s){return '<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="user-avatar" style="width:32px;height:32px;font-size:0.75rem">'+s.name.charAt(0).toUpperCase()+'</div><span style="font-weight:600">'+s.name+'</span></div></td><td><span class="badge badge-gold">'+(s.role||'Staff')+'</span></td><td class="td-muted">'+(s.phone||'—')+'</td><td class="td-muted">'+(s.email||'—')+'</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="editStaff(\''+s.id+'\')">Edit</button></td></tr>';}).join('');}
+function openAddStaffModal(){editingStaffId=null;setText('staff-modal-title','Add Staff Member');document.getElementById('staff-form').reset();openModal('staff-modal');}
+function editStaff(id){var s=allStaff.find(function(x){return x.id===id;});if(!s)return;editingStaffId=id;setText('staff-modal-title','Edit Staff Member');setVal('stf-name',s.name);setVal('stf-role',s.role||'');setVal('stf-phone',s.phone||'');setVal('stf-email',s.email||'');openModal('staff-modal');}
+async function saveStaff(){var data={name:getVal('stf-name').trim(),role:getVal('stf-role').trim()||null,phone:getVal('stf-phone').trim()||null,email:getVal('stf-email').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingStaffId){var i=allStaff.findIndex(function(s){return s.id===editingStaffId;});if(i>-1)allStaff[i]={...allStaff[i],...data};}else allStaff.push({id:'st'+Date.now(),...data,is_active:true});renderStaffTable(allStaff);closeModal('staff-modal');showToast('Saved','success');return;}var res=editingStaffId?await dbQuery(function(db){return db.from('staff').update(data).eq('id',editingStaffId);}):await dbQuery(function(db){return db.from('staff').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('staff-modal');showToast('Saved ✓','success');loadStaff();}
 
-function editSupplier(id) {
-  const s = allSuppliers.find(x => x.id === id);
-  if (!s) return;
-  editingSupplierId = id;
-  document.getElementById('supplier-modal-title').textContent = 'Edit Supplier';
-  document.getElementById('supf-name').value = s.name;
-  document.getElementById('supf-contact').value = s.contact_person || '';
-  document.getElementById('supf-phone').value = s.phone || '';
-  document.getElementById('supf-email').value = s.email || '';
-  document.getElementById('supf-address').value = s.address || '';
-  openModal('supplier-modal');
-}
+// ============================================================
+// SETTINGS
+// ============================================================
+function updateConnectionBadge(){var el=document.getElementById('connection-status');if(!el)return;el.innerHTML=_isConnected?'<span class="badge badge-green">✓ Connected to Supabase</span>':'<span class="badge badge-orange">Not Connected (Demo Mode)</span>';}
+function saveSupabaseConfig(){var url=getVal('cfg-url').trim(),key=getVal('cfg-key').trim();if(!url||!key){showToast('Enter both URL and key','error');return;}localStorage.setItem('mp_supabase_url',url);localStorage.setItem('mp_supabase_key',key);var client=initSupabase(url,key);updateConnectionBadge();updateSetupBanner();if(client){showToast('Connected ✓ — Reloading…','success');setTimeout(function(){navigateTo('dashboard');},800);}else{showToast('Could not connect. Check credentials.','error');}}
+async function testConnection(){if(!_isConnected){showToast('Not connected','warning');return;}var res=await dbQuery(function(db){return db.from('products').select('id').limit(1);});res.error?showToast('Test failed: '+res.error.message,'error'):showToast('Connection test passed ✓','success');}
+function copySQLSchema(){var ta=document.querySelector('textarea[readonly]');if(!ta)return;navigator.clipboard.writeText(ta.value).then(function(){showToast('SQL copied ✓','success');}).catch(function(){showToast('Copy failed — select manually','error');});}
 
-async function saveSupplier() {
-  const data = {
-    name: document.getElementById('supf-name').value.trim(),
-    contact_person: document.getElementById('supf-contact').value.trim() || null,
-    phone: document.getElementById('supf-phone').value.trim() || null,
-    email: document.getElementById('supf-email').value.trim() || null,
-    address: document.getElementById('supf-address').value.trim() || null,
-  };
-  if (!data.name) { showToast('Supplier name is required', 'error'); return; }
-  
-  if (!supabase) {
-    if (editingSupplierId) {
-      const idx = allSuppliers.findIndex(s => s.id === editingSupplierId);
-      if (idx > -1) allSuppliers[idx] = { ...allSuppliers[idx], ...data };
-    } else {
-      allSuppliers.push({ id: 'sup-' + Date.now(), ...data, is_active: true });
-    }
-    renderSuppliersTable(allSuppliers);
-    closeModal('supplier-modal');
-    showToast('Supplier saved', 'success');
-    return;
-  }
-  
-  try {
-    if (editingSupplierId) {
-      await supabase.from('suppliers').update(data).eq('id', editingSupplierId);
-    } else {
-      await supabase.from('suppliers').insert({ ...data, is_active: true });
-    }
-    closeModal('supplier-modal');
-    showToast('Supplier saved', 'success');
-    loadSuppliers();
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
-}
+// ============================================================
+// MODALS & TABS
+// ============================================================
+function openModal(id){document.getElementById(id)&&document.getElementById(id).classList.add('active');document.body.style.overflow='hidden';}
+function closeModal(id){document.getElementById(id)&&document.getElementById(id).classList.remove('active');document.body.style.overflow='';}
+document.addEventListener('click',function(e){if(e.target.classList.contains('modal-overlay')){e.target.classList.remove('active');document.body.style.overflow='';}});
+function switchTab(groupId,tabId){var group=document.getElementById(groupId);if(!group)return;group.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});group.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});var btn=group.querySelector('[data-tab="'+tabId+'"]');if(btn)btn.classList.add('active');var content=document.getElementById(tabId);if(content)content.classList.add('active');}
 
-// ---- STAFF ----
-let allStaff = [];
+// ============================================================
+// UTILITIES
+// ============================================================
+function formatNumber(n){return (parseFloat(n)||0).toLocaleString('en-PH',{minimumFractionDigits:0,maximumFractionDigits:2});}
+function formatDate(iso){if(!iso)return '—';return new Date(iso).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'});}
+function formatTime(t){if(!t)return '';var parts=t.split(':'),hN=parseInt(parts[0]);return (hN>12?hN-12:hN||12)+':'+parts[1]+' '+(hN>=12?'PM':'AM');}
+function timeAgo(iso){var diff=Date.now()-new Date(iso).getTime(),mins=Math.floor(diff/60000);if(mins<1)return 'just now';if(mins<60)return mins+'m ago';var hrs=Math.floor(mins/60);if(hrs<24)return hrs+'h ago';return Math.floor(hrs/24)+'d ago';}
+function capitalize(s){return s?s.charAt(0).toUpperCase()+s.slice(1):'';}
+function esc(s){return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
+function getVal(id){var el=document.getElementById(id);return el?el.value:'';}
+function setVal(id,v){var el=document.getElementById(id);if(el)el.value=(v==null?'':v);}
+function setText(id,v){var el=document.getElementById(id);if(el)el.textContent=(v==null?'':v);}
+function loadingRow(cols){return '<tr><td colspan="'+cols+'" style="text-align:center;padding:32px"><div class="loading-spinner"></div></td></tr>';}
 
-async function loadStaff() {
-  if (!supabase) { renderDemoStaff(); return; }
-  try {
-    const { data } = await supabase.from('staff').select('*').order('name');
-    allStaff = data || [];
-    renderStaffTable(allStaff);
-  } catch(e) { renderDemoStaff(); }
-}
-
-function renderDemoStaff() {
-  allStaff = [
-    { id: 'st1', name: 'Meera', role: 'Owner / Aesthetician', phone: '09993962841', email: 'meera@panemorfi.ph', is_active: true },
-    { id: 'st2', name: 'Ana Cruz', role: 'Nail Technician', phone: '0918-111-2222', email: '', is_active: true },
-    { id: 'st3', name: 'Rica Santos', role: 'Skin Therapist', phone: '0919-333-4444', email: '', is_active: true },
-  ];
-  renderStaffTable(allStaff);
-}
-
-function renderStaffTable(staff) {
-  const tbody = document.getElementById('staff-tbody');
-  tbody.innerHTML = staff.map(s => `
-    <tr>
-      <td>
-        <div style="display:flex;align-items:center;gap:10px">
-          <div class="user-avatar" style="width:32px;height:32px;font-size:0.75rem">${s.name.charAt(0)}</div>
-          <span style="font-weight:600">${s.name}</span>
-        </div>
-      </td>
-      <td><span class="badge badge-gold">${s.role || 'Staff'}</span></td>
-      <td class="td-muted">${s.phone || '—'}</td>
-      <td class="td-muted">${s.email || '—'}</td>
-      <td><span class="badge ${s.is_active ? 'badge-green' : 'badge-gray'}">${s.is_active ? 'Active' : 'Inactive'}</span></td>
-      <td>
-        <button class="btn btn-outline btn-sm" onclick="editStaff('${s.id}')">Edit</button>
-      </td>
-    </tr>
-  `).join('');
-}
-
-let editingStaffId = null;
-function openAddStaffModal() {
-  editingStaffId = null;
-  document.getElementById('staff-modal-title').textContent = 'Add Staff Member';
-  document.getElementById('staff-form').reset();
-  openModal('staff-modal');
-}
-
-function editStaff(id) {
-  const s = allStaff.find(x => x.id === id);
-  if (!s) return;
-  editingStaffId = id;
-  document.getElementById('staff-modal-title').textContent = 'Edit Staff Member';
-  document.getElementById('stf-name').value = s.name;
-  document.getElementById('stf-role').value = s.role || '';
-  document.getElementById('stf-phone').value = s.phone || '';
-  document.getElementById('stf-email').value = s.email || '';
-  openModal('staff-modal');
-}
-
-async function saveStaff() {
-  const data = {
-    name: document.getElementById('stf-name').value.trim(),
-    role: document.getElementById('stf-role').value.trim() || null,
-    phone: document.getElementById('stf-phone').value.trim() || null,
-    email: document.getElementById('stf-email').value.trim() || null,
-  };
-  if (!data.name) { showToast('Name is required', 'error'); return; }
-  
-  if (!supabase) {
-    if (editingStaffId) {
-      const idx = allStaff.findIndex(s => s.id === editingStaffId);
-      if (idx > -1) allStaff[idx] = { ...allStaff[idx], ...data };
-    } else {
-      allStaff.push({ id: 'st-' + Date.now(), ...data, is_active: true });
-    }
-    renderStaffTable(allStaff);
-    closeModal('staff-modal');
-    showToast('Staff member saved', 'success');
-    return;
-  }
-  
-  try {
-    if (editingStaffId) {
-      await supabase.from('staff').update(data).eq('id', editingStaffId);
-    } else {
-      await supabase.from('staff').insert({ ...data, is_active: true });
-    }
-    closeModal('staff-modal');
-    showToast('Staff member saved', 'success');
-    loadStaff();
-  } catch(e) {
-    showToast('Error: ' + e.message, 'error');
-  }
-}
-
-// ---- SETTINGS ----
-function saveSupabaseConfig() {
-  const url = document.getElementById('cfg-url').value.trim();
-  const key = document.getElementById('cfg-key').value.trim();
-  
-  if (!url || !key) { showToast('Enter both URL and API key', 'error'); return; }
-  
-  localStorage.setItem('mp_supabase_url', url);
-  localStorage.setItem('mp_supabase_key', key);
-  
-  const client = initSupabase(url, key);
-  if (client) {
-    document.getElementById('connection-status').innerHTML = '<span class="badge badge-green">✓ Connected</span>';
-    showToast('Supabase connected successfully!', 'success');
-    loadDashboard();
-  } else {
-    document.getElementById('connection-status').innerHTML = '<span class="badge badge-red">✕ Failed</span>';
-    showToast('Connection failed. Check your credentials.', 'error');
-  }
-}
-
-// ---- MODAL UTILITIES ----
-function openModal(id) {
-  document.getElementById(id).classList.add('active');
-  document.body.style.overflow = 'hidden';
-}
-
-function closeModal(id) {
-  document.getElementById(id).classList.remove('active');
-  document.body.style.overflow = '';
-}
-
-// Close modal on overlay click
-document.addEventListener('click', e => {
-  if (e.target.classList.contains('modal-overlay')) {
-    e.target.classList.remove('active');
-    document.body.style.overflow = '';
-  }
-});
-
-// ---- TAB SYSTEM ----
-function switchTab(groupId, tabId) {
-  const group = document.getElementById(groupId);
-  if (!group) return;
-  group.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  group.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.querySelector(`[data-tab="${tabId}"]`)?.classList.add('active');
-  document.getElementById(tabId)?.classList.add('active');
-}
-
-// ---- UTILITIES ----
-function formatCurrency(n) { return '₱' + formatNumber(n); }
-function formatNumber(n, decimals = 2) {
-  const num = parseFloat(n) || 0;
-  if (decimals === 0) return num.toLocaleString('en-PH');
-  return num.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-}
-function formatDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-function formatTime(time) {
-  if (!time) return '';
-  const [h, m] = time.split(':');
-  const hNum = parseInt(h);
-  const ampm = hNum >= 12 ? 'PM' : 'AM';
-  return `${hNum > 12 ? hNum - 12 : hNum || 12}:${m} ${ampm}`;
-}
-function timeAgo(iso) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
-function escHtml(s) { return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
-
-// ---- INIT ----
-document.addEventListener('DOMContentLoaded', () => {
-  // Load saved Supabase credentials
-  const savedUrl = localStorage.getItem('mp_supabase_url');
-  const savedKey = localStorage.getItem('mp_supabase_key');
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', function() {
+  var savedUrl=localStorage.getItem('mp_supabase_url');
+  var savedKey=localStorage.getItem('mp_supabase_key');
   if (savedUrl && savedKey) {
-    document.getElementById('cfg-url').value = savedUrl;
-    document.getElementById('cfg-key').value = savedKey;
+    setVal('cfg-url', savedUrl);
+    setVal('cfg-key', savedKey);
     initSupabase(savedUrl, savedKey);
-    if (supabase) {
-      document.getElementById('connection-status').innerHTML = '<span class="badge badge-green">✓ Connected</span>';
-    }
   }
-  
-  // Load initial page
-  navigateTo('dashboard');
-  
-  // Sidebar nav items
-  document.querySelectorAll('.nav-item[data-page]').forEach(item => {
-    item.addEventListener('click', () => navigateTo(item.dataset.page));
+  updateConnectionBadge();
+  updateSetupBanner();
+  document.querySelectorAll('.nav-item[data-page]').forEach(function(item){
+    item.addEventListener('click', function(){ navigateTo(item.dataset.page); });
   });
-  
-  // Initialize POS cart
+  navigateTo('dashboard');
   renderCart();
 });
