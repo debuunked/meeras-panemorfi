@@ -3,11 +3,17 @@
 // Replace these values with your actual Supabase project credentials
 // ============================================================
 
-const SUPABASE_URL = 'https://uacomiyljswtsjzznlxp.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhY29taXlsanN3dHNqenpubHhwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MTA0NjQsImV4cCI6MjA4ODk4NjQ2NH0.ylcfPFEncznnbtqmNWxO_PJGcvsN2APNuimyXS6jy5s';
+// IMPORTANT: Do NOT hardcode real credentials here.
+// Configure your Supabase URL and anon key via the Settings page in the app,
+// which stores them in localStorage. These placeholders are only used as
+// fallback defaults when nothing has been configured yet.
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
-// Initialize Supabase client
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Initialize Supabase client only if real credentials are present
+const supabase = (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY')
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
 // ============================================================
 // DATABASE SCHEMA - Run this SQL in your Supabase SQL Editor
