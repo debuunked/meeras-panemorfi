@@ -13,10 +13,10 @@ function initSupabase(url, key) {
   try {
     _db = window.supabase.createClient(url, key);
     _isConnected = true;
-    console.log('[Meeras IMS] Supabase connected');
+    // connection established
     return _db;
   } catch (e) {
-    console.error('[Meeras IMS] Supabase init error:', e);
+    console.error('[Meeras IMS] Supabase init failed');
     _isConnected = false;
     return null;
   }
@@ -27,10 +27,10 @@ async function dbQuery(fn) {
   if (!_db) return { data: null, error: new Error('Not connected'), count: null };
   try {
     const result = await fn(_db);
-    if (result.error) console.warn('[DB]', result.error.message);
+    if (result.error) console.warn('[DB] query error');
     return result;
   } catch (e) {
-    console.error('[DB Error]', e);
+    console.error('[DB Error]');
     return { data: null, error: e, count: null };
   }
 }
@@ -41,7 +41,7 @@ function showToast(msg, type = 'info', duration = 3500) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = 'toast ' + type;
-  toast.innerHTML = '<span>' + (icons[type]||'◆') + '</span><span>' + msg + '</span>';
+  toast.innerHTML = '<span>' + (icons[type]||'◆') + '</span><span>' + escHtml(msg) + '</span>';
   container.appendChild(toast);
   setTimeout(function() {
     toast.style.animation = 'fadeOut 0.3s ease forwards';
@@ -158,7 +158,7 @@ function renderActivity(items) {
   list.innerHTML = items.map(function(item) {
     var color = item.type==='in' ? 'var(--green)' : item.type==='out' ? 'var(--red)' : 'var(--orange)';
     var action = item.type==='in' ? 'Stock added' : item.type==='out' ? 'Stock removed' : 'Adjusted';
-    return '<div class="activity-item"><div class="activity-dot" style="background:' + color + '"></div><div class="activity-text"><span>' + (item.products && item.products.name ? item.products.name : 'Product') + '</span> — ' + action + ': ' + Math.abs(item.quantity) + ' units' + (item.notes ? ' <em class="td-muted">(' + item.notes + ')</em>' : '') + '</div><div class="activity-time">' + timeAgo(item.created_at) + '</div></div>';
+    return '<div class="activity-item"><div class="activity-dot" style="background:' + color + '"></div><div class="activity-text"><span>' + escHtml(item.products && item.products.name ? item.products.name : 'Product') + '</span> — ' + action + ': ' + Math.abs(item.quantity) + ' units' + (item.notes ? ' <em class="td-muted">(' + escHtml(item.notes) + ')</em>' : '') + '</div><div class="activity-time">' + timeAgo(item.created_at) + '</div></div>';
   }).join('');
 }
 
@@ -190,7 +190,7 @@ function renderLowStock(items) {
     return;
   }
   list.innerHTML = items.map(function(i) {
-    return '<div class="low-stock-item"><span class="low-stock-name">' + i.name + '</span><span class="low-stock-count">' + i.quantity + ' left</span></div>';
+    return '<div class="low-stock-item"><span class="low-stock-name">' + escHtml(i.name) + '</span><span class="low-stock-count">' + i.quantity + ' left</span></div>';
   }).join('');
 }
 
@@ -282,9 +282,9 @@ function renderInventoryTable(products) {
     var barC = isOut ? 'critical' : isLow ? 'low' : 'ok';
     var bdg  = isOut ? 'badge-red' : isLow ? 'badge-orange' : 'badge-green';
     var lbl  = isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock';
-    return '<tr><td><div style="font-weight:600;font-size:0.83rem">' + p.name + '</div><div class="td-muted">' + (p.sku||'—') + '</div></td>'
-      + '<td><span class="badge badge-gold">' + p.category + '</span></td>'
-      + '<td><div class="stock-bar"><div class="stock-bar-track"><div class="stock-bar-fill ' + barC + '" style="width:' + pct + '%"></div></div><span class="stock-count">' + p.quantity + ' ' + (p.unit||'pcs') + '</span></div></td>'
+    return '<tr><td><div style="font-weight:600;font-size:0.83rem">' + escHtml(p.name) + '</div><div class="td-muted">' + escHtml(p.sku||'—') + '</div></td>'
+      + '<td><span class="badge badge-gold">' + escHtml(p.category) + '</span></td>'
+      + '<td><div class="stock-bar"><div class="stock-bar-track"><div class="stock-bar-fill ' + barC + '" style="width:' + pct + '%"></div></div><span class="stock-count">' + p.quantity + ' ' + escHtml(p.unit||'pcs') + '</span></div></td>'
       + '<td class="td-muted">' + p.min_stock + '</td>'
       + '<td>₱' + formatNumber(p.cost_price) + '</td>'
       + '<td>' + (p.selling_price > 0 ? '₱' + formatNumber(p.selling_price) : '<span class="td-muted">—</span>') + '</td>'
@@ -327,6 +327,7 @@ function editProduct(id) {
 async function saveProduct() {
   var data = { name:getVal('pf-name').trim(), category:getVal('pf-category'), sku:getVal('pf-sku').trim()||null, unit:getVal('pf-unit'), quantity:parseInt(getVal('pf-quantity'))||0, min_stock:parseInt(getVal('pf-min-stock'))||5, cost_price:parseFloat(getVal('pf-cost'))||0, selling_price:parseFloat(getVal('pf-price'))||0, supplier:getVal('pf-supplier').trim()||null, description:getVal('pf-description').trim()||null, updated_at:new Date().toISOString() };
   if (!data.name || !data.category) { showToast('Name and category are required', 'error'); return; }
+  if (data.name.length>200||( data.sku&&data.sku.length>50)||(data.supplier&&data.supplier.length>200)||(data.description&&data.description.length>1000)) { showToast('One or more fields exceed maximum length','error'); return; }
   if (!_isConnected) {
     if (editingProductId) { var i=allProducts.findIndex(function(p){return p.id===editingProductId;}); if(i>-1) allProducts[i]={...allProducts[i],...data}; }
     else allProducts.unshift({id:'d'+Date.now(),...data,is_active:true,created_at:new Date().toISOString()});
@@ -438,7 +439,7 @@ function renderServicesTable(services) {
     return;
   }
   tbody.innerHTML = services.map(function(s){
-    return '<tr><td><div style="font-weight:600;font-size:0.83rem">'+s.name+'</div></td><td><span class="badge badge-teal">'+s.category+'</span></td><td style="font-weight:600;color:var(--gold-dark)">₱'+formatNumber(s.price)+'</td><td class="td-muted">'+s.duration_minutes+' min</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><div style="display:flex;gap:6px"><button class="btn btn-outline btn-sm" onclick="editService(\''+s.id+'\')">Edit</button><button class="btn btn-ghost btn-sm" onclick="toggleService(\''+s.id+'\','+(!s.is_active)+')">'+(s.is_active?'Deactivate':'Activate')+'</button></div></td></tr>';
+    return '<tr><td><div style="font-weight:600;font-size:0.83rem">'+escHtml(s.name)+'</div></td><td><span class="badge badge-teal">'+escHtml(s.category)+'</span></td><td style="font-weight:600;color:var(--gold-dark)">₱'+formatNumber(s.price)+'</td><td class="td-muted">'+s.duration_minutes+' min</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><div style="display:flex;gap:6px"><button class="btn btn-outline btn-sm" onclick="editService(\''+s.id+'\')">Edit</button><button class="btn btn-ghost btn-sm" onclick="toggleService(\''+s.id+'\','+(!s.is_active)+')">'+(s.is_active?'Deactivate':'Activate')+'</button></div></td></tr>';
   }).join('');
 }
 
@@ -456,6 +457,7 @@ function editService(id) {
 async function saveService() {
   var data={name:getVal('sf-name').trim(),category:getVal('sf-category').trim(),price:parseFloat(getVal('sf-price'))||0,duration_minutes:parseInt(getVal('sf-duration'))||60,description:getVal('sf-description').trim()||null};
   if (!data.name||!data.category||!data.price) { showToast('Name, category and price required','error'); return; }
+  if (data.name.length>200||data.category.length>100||(data.description&&data.description.length>1000)) { showToast('One or more fields exceed maximum length','error'); return; }
   if (!_isConnected) {
     if (editingServiceId) { var i=allServices.findIndex(function(s){return s.id===editingServiceId;}); if(i>-1) allServices[i]={...allServices[i],...data}; }
     else allServices.unshift({id:'s'+Date.now(),...data,is_active:true});
@@ -508,7 +510,7 @@ function renderAppointments(appts) {
   list.innerHTML=appts.map(function(a){
     var badgeCls=a.status==='confirmed'?'badge-green':a.status==='completed'?'badge-gray':a.status==='cancelled'?'badge-red':'badge-orange';
     var btns=(a.status!=='completed'&&a.status!=='cancelled')?'<button class="btn btn-outline btn-sm" onclick="updateApptStatus(\''+a.id+'\',\'confirmed\')">✓</button><button class="btn btn-danger btn-sm" onclick="updateApptStatus(\''+a.id+'\',\'cancelled\')">✕</button>':'';
-    return '<div class="appt-card '+a.status+'"><div class="appt-time">'+formatTime(a.appointment_time)+'</div><div class="appt-info"><div class="appt-client">'+a.client_name+'</div><div class="appt-service">'+(a.service_name||'No service')+' • '+(a.client_phone||'No phone')+'</div></div><span class="badge '+badgeCls+'">'+capitalize(a.status)+'</span><div class="appt-amount">₱'+formatNumber(a.amount||0)+'</div><div style="display:flex;gap:6px">'+btns+'<button class="btn btn-ghost btn-sm" onclick="editAppointment(\''+a.id+'\')">Edit</button></div></div>';
+    return '<div class="appt-card '+a.status+'"><div class="appt-time">'+formatTime(a.appointment_time)+'</div><div class="appt-info"><div class="appt-client">'+escHtml(a.client_name)+'</div><div class="appt-service">'+escHtml(a.service_name||'No service')+' • '+escHtml(a.client_phone||'No phone')+'</div></div><span class="badge '+badgeCls+'">'+capitalize(a.status)+'</span><div class="appt-amount">₱'+formatNumber(a.amount||0)+'</div><div style="display:flex;gap:6px">'+btns+'<button class="btn btn-ghost btn-sm" onclick="editAppointment(\''+a.id+'\')">Edit</button></div></div>';
   }).join('');
 }
 async function updateApptStatus(id, status) {
@@ -531,13 +533,14 @@ function editAppointment(id) {
 }
 function populateServiceSelect(selectedId) {
   var sel=document.getElementById('af-service');
-  sel.innerHTML='<option value="">— Select service —</option>'+allServices.filter(function(s){return s.is_active;}).map(function(s){return '<option value="'+s.id+'" data-price="'+s.price+'"'+(s.id===selectedId?' selected':'')+'>'+s.name+' — ₱'+formatNumber(s.price)+'</option>';}).join('');
+  sel.innerHTML='<option value="">— Select service —</option>'+allServices.filter(function(s){return s.is_active;}).map(function(s){return '<option value="'+s.id+'" data-price="'+s.price+'"'+(s.id===selectedId?' selected':'')+'>'+escHtml(s.name)+' — ₱'+formatNumber(s.price)+'</option>';}).join('');
   sel.onchange=function(){var opt=sel.options[sel.selectedIndex]; if(opt&&opt.dataset.price) setVal('af-amount',opt.dataset.price);};
 }
 async function saveAppointment() {
   var sel=document.getElementById('af-service'), sOpt=sel.options[sel.selectedIndex];
   var data={client_name:getVal('af-client').trim(),client_phone:getVal('af-phone').trim()||null,service_id:sel.value||null,service_name:(sel.value&&sOpt)?sOpt.text.split(' — ')[0].trim():null,appointment_date:getVal('af-date'),appointment_time:getVal('af-time'),amount:parseFloat(getVal('af-amount'))||0,status:getVal('af-status'),notes:getVal('af-notes').trim()||null};
   if (!data.client_name||!data.appointment_date||!data.appointment_time) { showToast('Client name, date and time required','error'); return; }
+  if (data.client_name.length>200||(data.client_phone&&data.client_phone.length>30)||(data.notes&&data.notes.length>1000)) { showToast('One or more fields exceed maximum length','error'); return; }
   if (!_isConnected) {
     if (editingApptId) { var i=allAppointments.findIndex(function(a){return a.id===editingApptId;}); if(i>-1) allAppointments[i]={...allAppointments[i],...data}; }
     else allAppointments.push({id:'a'+Date.now(),...data});
@@ -561,7 +564,7 @@ function populatePOSServiceList(category) {
   var list=document.getElementById('pos-services');
   var svcs=allServices.filter(function(s){return s.is_active&&(!category||s.category===category);});
   if (!svcs.length) { list.innerHTML='<p class="td-muted" style="padding:20px;text-align:center">No services here</p>'; return; }
-  list.innerHTML=svcs.map(function(s){return '<div class="pos-service-item" onclick="addToCart(\''+s.id+'\',\''+esc(s.name)+'\','+s.price+')"><div style="font-weight:600;font-size:0.82rem">'+s.name+'</div><div style="color:var(--gold-dark);font-weight:700;margin-top:3px">₱'+formatNumber(s.price)+'</div><div style="font-size:0.68rem;color:var(--gray);margin-top:2px">'+s.category+'</div></div>';}).join('');
+  list.innerHTML=svcs.map(function(s){return '<div class="pos-service-item" onclick="addToCart(\''+s.id+'\',\''+esc(s.name)+'\','+s.price+')"><div style="font-weight:600;font-size:0.82rem">'+escHtml(s.name)+'</div><div style="color:var(--gold-dark);font-weight:700;margin-top:3px">₱'+formatNumber(s.price)+'</div><div style="font-size:0.68rem;color:var(--gray);margin-top:2px">'+escHtml(s.category)+'</div></div>';}).join('');
 }
 function filterPOS(btn, category) { document.querySelectorAll('.pos-cat-btn').forEach(function(b){b.classList.remove('active');}); btn.classList.add('active'); populatePOSServiceList(category); }
 function addToCart(id,name,price) { var e=posCart.find(function(c){return c.id===id;}); e?e.qty++:posCart.push({id,name,price,qty:1}); renderCart(); }
@@ -572,7 +575,7 @@ function renderCart() {
   var subtotal=posCart.reduce(function(s,i){return s+i.price*i.qty;},0);
   var discount=parseFloat(getVal('pos-discount'))||0, total=Math.max(0,subtotal-discount);
   if (!posCart.length) { cartList.innerHTML='<div class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:2rem">🛒</div><p style="font-size:0.78rem">Tap a service to add</p></div>'; }
-  else { cartList.innerHTML=posCart.map(function(item,idx){return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(201,151,28,0.08)"><div style="flex:1"><div style="font-size:0.82rem;font-weight:500">'+item.name+'</div><div style="font-size:0.7rem;color:var(--gray)">₱'+formatNumber(item.price)+' × '+item.qty+'</div></div><div style="font-weight:600;color:var(--dark);font-size:0.82rem;white-space:nowrap">₱'+formatNumber(item.price*item.qty)+'</div><button onclick="removeFromCart('+idx+')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:1.1rem;line-height:1;padding:2px 4px">×</button></div>';}).join(''); }
+  else { cartList.innerHTML=posCart.map(function(item,idx){return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(201,151,28,0.08)"><div style="flex:1"><div style="font-size:0.82rem;font-weight:500">'+escHtml(item.name)+'</div><div style="font-size:0.7rem;color:var(--gray)">₱'+formatNumber(item.price)+' × '+item.qty+'</div></div><div style="font-weight:600;color:var(--dark);font-size:0.82rem;white-space:nowrap">₱'+formatNumber(item.price*item.qty)+'</div><button onclick="removeFromCart('+idx+')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:1.1rem;line-height:1;padding:2px 4px">×</button></div>';}).join(''); }
   setText('cart-subtotal','₱'+formatNumber(subtotal)); setText('cart-discount','₱'+formatNumber(discount)); setText('cart-total','₱'+formatNumber(total));
 }
 async function processSale() {
@@ -601,7 +604,7 @@ function getDemoSales() {
 function renderSalesTable(sales) {
   var tbody=document.getElementById('sales-tbody');
   if (!sales.length) { tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">💰</div><h3>No sales yet</h3><p>Process a sale from the <strong>New Sale</strong> tab</p></div></td></tr>'; return; }
-  tbody.innerHTML=sales.map(function(s){var items=Array.isArray(s.items)?s.items.map(function(i){return i.name;}).join(', '):'—'; return '<tr><td class="td-muted">'+formatDate(s.created_at)+'</td><td style="font-weight:500">'+s.client_name+'</td><td class="td-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+items+'">'+items+'</td><td style="font-weight:700;color:var(--gold-dark)">₱'+formatNumber(s.total)+'</td><td><span class="badge badge-teal">'+capitalize(s.payment_method||'cash')+'</span></td><td><span class="badge badge-green">Completed</span></td></tr>';}).join('');
+  tbody.innerHTML=sales.map(function(s){var items=Array.isArray(s.items)?s.items.map(function(i){return escHtml(i.name);}).join(', '):'—'; return '<tr><td class="td-muted">'+formatDate(s.created_at)+'</td><td style="font-weight:500">'+escHtml(s.client_name)+'</td><td class="td-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+items+'">'+items+'</td><td style="font-weight:700;color:var(--gold-dark)">₱'+formatNumber(s.total)+'</td><td><span class="badge badge-teal">'+capitalize(s.payment_method||'cash')+'</span></td><td><span class="badge badge-green">Completed</span></td></tr>';}).join('');
 }
 
 // ============================================================
@@ -642,7 +645,7 @@ function renderTopServices(appts) {
   appts.forEach(function(a){if(a.service_name) counts[a.service_name]=(counts[a.service_name]||0)+1;});
   var sorted=Object.entries(counts).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
   var el=document.getElementById('top-services-list');
-  el.innerHTML=sorted.length?sorted.map(function(e){return '<div class="report-metric"><span class="report-metric-label">'+e[0]+'</span><span class="badge badge-teal">'+e[1]+' bookings</span></div>';}).join(''):
+  el.innerHTML=sorted.length?sorted.map(function(e){return '<div class="report-metric"><span class="report-metric-label">'+escHtml(e[0])+'</span><span class="badge badge-teal">'+e[1]+' bookings</span></div>';}).join(''):
     '<div class="report-metric"><span class="report-metric-label">Korean Black Pearl</span><span class="badge badge-gold">₱1,800</span></div><div class="report-metric"><span class="report-metric-label">Exilis Tummy</span><span class="badge badge-gold">₱2,000</span></div><div class="report-metric"><span class="report-metric-label">Meso Acne</span><span class="badge badge-teal">₱1,500</span></div><div class="report-metric"><span class="report-metric-label">Brazilian Waxing</span><span class="badge badge-teal">₱800</span></div><div class="report-metric"><span class="report-metric-label">Diamond Peel</span><span class="badge badge-green">₱500</span></div>';
 }
 
@@ -660,11 +663,11 @@ function getDemoSuppliers(){return [{id:'sup1',name:'Beauty Supplies Co.',contac
 function renderSuppliersTable(suppliers) {
   var tbody=document.getElementById('suppliers-tbody');
   if (!suppliers.length) { tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🚚</div><h3>No suppliers yet</h3><p>Click <strong>+ Add Supplier</strong></p></div></td></tr>'; return; }
-  tbody.innerHTML=suppliers.map(function(s){return '<tr><td style="font-weight:600">'+s.name+'</td><td class="td-muted">'+(s.contact_person||'—')+'</td><td class="td-muted">'+(s.phone||'—')+'</td><td class="td-muted">'+(s.email||'—')+'</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="editSupplier(\''+s.id+'\')">Edit</button></td></tr>';}).join('');
+  tbody.innerHTML=suppliers.map(function(s){return '<tr><td style="font-weight:600">'+escHtml(s.name)+'</td><td class="td-muted">'+escHtml(s.contact_person||'—')+'</td><td class="td-muted">'+escHtml(s.phone||'—')+'</td><td class="td-muted">'+escHtml(s.email||'—')+'</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="editSupplier(\''+s.id+'\')">Edit</button></td></tr>';}).join('');
 }
 function openAddSupplierModal(){editingSuppId=null;setText('supplier-modal-title','Add Supplier');document.getElementById('supplier-form').reset();openModal('supplier-modal');}
 function editSupplier(id){var s=allSuppliers.find(function(x){return x.id===id;});if(!s)return;editingSuppId=id;setText('supplier-modal-title','Edit Supplier');setVal('supf-name',s.name);setVal('supf-contact',s.contact_person||'');setVal('supf-phone',s.phone||'');setVal('supf-email',s.email||'');setVal('supf-address',s.address||'');openModal('supplier-modal');}
-async function saveSupplier(){var data={name:getVal('supf-name').trim(),contact_person:getVal('supf-contact').trim()||null,phone:getVal('supf-phone').trim()||null,email:getVal('supf-email').trim()||null,address:getVal('supf-address').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingSuppId){var i=allSuppliers.findIndex(function(s){return s.id===editingSuppId;});if(i>-1)allSuppliers[i]={...allSuppliers[i],...data};}else allSuppliers.push({id:'sup'+Date.now(),...data,is_active:true});renderSuppliersTable(allSuppliers);closeModal('supplier-modal');showToast('Saved','success');return;}var res=editingSuppId?await dbQuery(function(db){return db.from('suppliers').update(data).eq('id',editingSuppId);}):await dbQuery(function(db){return db.from('suppliers').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('supplier-modal');showToast('Saved ✓','success');loadSuppliers();}
+async function saveSupplier(){var data={name:getVal('supf-name').trim(),contact_person:getVal('supf-contact').trim()||null,phone:getVal('supf-phone').trim()||null,email:getVal('supf-email').trim()||null,address:getVal('supf-address').trim()||null};if(!data.name){showToast('Name required','error');return;}if(data.name.length>200||(data.contact_person&&data.contact_person.length>200)||(data.phone&&data.phone.length>30)||(data.email&&data.email.length>200)||(data.address&&data.address.length>500)){showToast('One or more fields exceed maximum length','error');return;}if(!_isConnected){if(editingSuppId){var i=allSuppliers.findIndex(function(s){return s.id===editingSuppId;});if(i>-1)allSuppliers[i]={...allSuppliers[i],...data};}else allSuppliers.push({id:'sup'+Date.now(),...data,is_active:true});renderSuppliersTable(allSuppliers);closeModal('supplier-modal');showToast('Saved','success');return;}var res=editingSuppId?await dbQuery(function(db){return db.from('suppliers').update(data).eq('id',editingSuppId);}):await dbQuery(function(db){return db.from('suppliers').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('supplier-modal');showToast('Saved ✓','success');loadSuppliers();}
 
 // ============================================================
 // STAFF
@@ -672,10 +675,10 @@ async function saveSupplier(){var data={name:getVal('supf-name').trim(),contact_
 var allStaff=[], editingStaffId=null;
 async function loadStaff(){document.getElementById('staff-tbody').innerHTML=loadingRow(6);var res=await dbQuery(function(db){return db.from('staff').select('*').order('name');});allStaff=(res.data&&!res.error)?res.data:getDemoStaff();renderStaffTable(allStaff);}
 function getDemoStaff(){return [{id:'st1',name:'Meera',role:'Owner / Aesthetician',phone:'09993962841',email:'meera@panemorfi.ph',is_active:true},{id:'st2',name:'Ana Cruz',role:'Nail Technician',phone:'0918-111-2222',email:'',is_active:true},{id:'st3',name:'Rica Santos',role:'Skin Therapist',phone:'0919-333-4444',email:'',is_active:true}];}
-function renderStaffTable(staff){var tbody=document.getElementById('staff-tbody');if(!staff.length){tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div><h3>No staff yet</h3></div></td></tr>';return;}tbody.innerHTML=staff.map(function(s){return '<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="user-avatar" style="width:32px;height:32px;font-size:0.75rem">'+s.name.charAt(0).toUpperCase()+'</div><span style="font-weight:600">'+s.name+'</span></div></td><td><span class="badge badge-gold">'+(s.role||'Staff')+'</span></td><td class="td-muted">'+(s.phone||'—')+'</td><td class="td-muted">'+(s.email||'—')+'</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="editStaff(\''+s.id+'\')">Edit</button></td></tr>';}).join('');}
+function renderStaffTable(staff){var tbody=document.getElementById('staff-tbody');if(!staff.length){tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div><h3>No staff yet</h3></div></td></tr>';return;}tbody.innerHTML=staff.map(function(s){return '<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="user-avatar" style="width:32px;height:32px;font-size:0.75rem">'+escHtml(s.name.charAt(0).toUpperCase())+'</div><span style="font-weight:600">'+escHtml(s.name)+'</span></div></td><td><span class="badge badge-gold">'+escHtml(s.role||'Staff')+'</span></td><td class="td-muted">'+escHtml(s.phone||'—')+'</td><td class="td-muted">'+escHtml(s.email||'—')+'</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="editStaff(\''+s.id+'\')">Edit</button></td></tr>';}).join('');}
 function openAddStaffModal(){editingStaffId=null;setText('staff-modal-title','Add Staff Member');document.getElementById('staff-form').reset();openModal('staff-modal');}
 function editStaff(id){var s=allStaff.find(function(x){return x.id===id;});if(!s)return;editingStaffId=id;setText('staff-modal-title','Edit Staff Member');setVal('stf-name',s.name);setVal('stf-role',s.role||'');setVal('stf-phone',s.phone||'');setVal('stf-email',s.email||'');openModal('staff-modal');}
-async function saveStaff(){var data={name:getVal('stf-name').trim(),role:getVal('stf-role').trim()||null,phone:getVal('stf-phone').trim()||null,email:getVal('stf-email').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingStaffId){var i=allStaff.findIndex(function(s){return s.id===editingStaffId;});if(i>-1)allStaff[i]={...allStaff[i],...data};}else allStaff.push({id:'st'+Date.now(),...data,is_active:true});renderStaffTable(allStaff);closeModal('staff-modal');showToast('Saved','success');return;}var res=editingStaffId?await dbQuery(function(db){return db.from('staff').update(data).eq('id',editingStaffId);}):await dbQuery(function(db){return db.from('staff').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('staff-modal');showToast('Saved ✓','success');loadStaff();}
+async function saveStaff(){var data={name:getVal('stf-name').trim(),role:getVal('stf-role').trim()||null,phone:getVal('stf-phone').trim()||null,email:getVal('stf-email').trim()||null};if(!data.name){showToast('Name required','error');return;}if(data.name.length>200||(data.role&&data.role.length>100)||(data.phone&&data.phone.length>30)||(data.email&&data.email.length>200)){showToast('One or more fields exceed maximum length','error');return;}if(!_isConnected){if(editingStaffId){var i=allStaff.findIndex(function(s){return s.id===editingStaffId;});if(i>-1)allStaff[i]={...allStaff[i],...data};}else allStaff.push({id:'st'+Date.now(),...data,is_active:true});renderStaffTable(allStaff);closeModal('staff-modal');showToast('Saved','success');return;}var res=editingStaffId?await dbQuery(function(db){return db.from('staff').update(data).eq('id',editingStaffId);}):await dbQuery(function(db){return db.from('staff').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('staff-modal');showToast('Saved ✓','success');loadStaff();}
 
 // ============================================================
 // SETTINGS
@@ -702,6 +705,7 @@ function formatTime(t){if(!t)return '';var parts=t.split(':'),hN=parseInt(parts[
 function timeAgo(iso){var diff=Date.now()-new Date(iso).getTime(),mins=Math.floor(diff/60000);if(mins<1)return 'just now';if(mins<60)return mins+'m ago';var hrs=Math.floor(mins/60);if(hrs<24)return hrs+'h ago';return Math.floor(hrs/24)+'d ago';}
 function capitalize(s){return s?s.charAt(0).toUpperCase()+s.slice(1):'';}
 function esc(s){return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
+function escHtml(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function getVal(id){var el=document.getElementById(id);return el?el.value:'';}
 function setVal(id,v){var el=document.getElementById(id);if(el)el.value=(v==null?'':v);}
 function setText(id,v){var el=document.getElementById(id);if(el)el.textContent=(v==null?'':v);}
