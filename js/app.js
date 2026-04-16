@@ -7,31 +7,158 @@
 // Use _db to avoid colliding with window.supabase (the library itself)
 let _db = null;
 let _isConnected = false;
+let _consecutiveErrors = 0;
+var MAX_RETRY_ATTEMPTS = 1;
+var RETRY_DELAY_MS = 1500;
+
+function isValidSupabaseUrl(url) {
+  try {
+    var parsed = new URL(url);
+    return parsed.protocol === 'https:' && parsed.hostname.endsWith('.supabase.co');
+  } catch (e) {
+    return false;
+  }
+}
+
+function isValidSupabaseKey(key) {
+  return typeof key === 'string' && key.startsWith('eyJ') && key.length > 30;
+}
+
+function classifyError(error) {
+  if (!error) return null;
+  var msg = (error.message || '').toLowerCase();
+  var code = error.code || '';
+  var status = error.status || error.statusCode || 0;
+
+  if (!navigator.onLine) return { type: 'network', userMessage: 'You are offline. Please check your internet connection.', retryable: true };
+  if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('network request failed') || msg.includes('load failed'))
+    return { type: 'network', userMessage: 'Network error — unable to reach the server. Check your internet connection.', retryable: true };
+  if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('aborted'))
+    return { type: 'timeout', userMessage: 'Request timed out. The server may be slow — please try again.', retryable: true };
+  if (status === 401 || msg.includes('invalid api key') || msg.includes('jwt') || msg.includes('invalid claim') || msg.includes('token is expired') || code === 'PGRST301')
+    return { type: 'auth', userMessage: 'Invalid or expired API credentials. Please check your URL and API key in Settings.', retryable: false };
+  if (status === 403 || msg.includes('permission denied') || msg.includes('row-level security') || code === '42501')
+    return { type: 'permission', userMessage: 'Permission denied. Your API key may not have access to this data.', retryable: false };
+  if (status === 404 || code === '42P01' || msg.includes('does not exist') || msg.includes('relation') && msg.includes('does not exist'))
+    return { type: 'missing_table', userMessage: 'Database table not found. Please run the SQL schema setup from Settings.', retryable: false };
+  if (status === 409 || msg.includes('duplicate') || msg.includes('unique constraint') || code === '23505')
+    return { type: 'conflict', userMessage: 'A record with this information already exists.', retryable: false };
+  if (status === 429 || msg.includes('rate limit') || msg.includes('too many requests'))
+    return { type: 'rate_limit', userMessage: 'Too many requests. Please wait a moment and try again.', retryable: true };
+  if (status >= 500 || msg.includes('server error') || msg.includes('internal error'))
+    return { type: 'server', userMessage: 'Supabase server error. The service may be temporarily down — try again shortly.', retryable: true };
+
+  return { type: 'unknown', userMessage: 'Something went wrong: ' + (error.message || 'Unknown error'), retryable: false };
+}
 
 function initSupabase(url, key) {
   if (!url || !key || url.includes('YOUR_SUPABASE')) return null;
+
+  if (!isValidSupabaseUrl(url)) {
+    showToast('Invalid Supabase URL. Expected format: https://xxxxx.supabase.co', 'error', 5000);
+    _isConnected = false;
+    return null;
+  }
+  if (!isValidSupabaseKey(key)) {
+    showToast('Invalid API key format. The key should start with "eyJ..."', 'error', 5000);
+    _isConnected = false;
+    return null;
+  }
+
   try {
     _db = window.supabase.createClient(url, key);
+    // createClient does not validate credentials — actual validation
+    // happens on the first query via verifyConnection().
     _isConnected = true;
-    console.log('[Meeras IMS] Supabase connected');
+    _consecutiveErrors = 0;
+    console.log('[Meeras IMS] Supabase client created');
     return _db;
   } catch (e) {
     console.error('[Meeras IMS] Supabase init error:', e);
     _isConnected = false;
+    showToast('Failed to initialize Supabase: ' + e.message, 'error', 5000);
     return null;
   }
 }
 
-// Safe query wrapper
-async function dbQuery(fn) {
-  if (!_db) return { data: null, error: new Error('Not connected'), count: null };
+async function verifyConnection() {
+  if (!_db) return false;
   try {
-    const result = await fn(_db);
-    if (result.error) console.warn('[DB]', result.error.message);
-    return result;
+    var res = await _db.from('products').select('id', { count: 'exact', head: true }).limit(1);
+    if (res.error) {
+      var classified = classifyError(res.error);
+      if (classified.type === 'missing_table') {
+        _isConnected = true;
+        return true;
+      }
+      _isConnected = false;
+      showToast(classified.userMessage, 'error', 6000);
+      return false;
+    }
+    _isConnected = true;
+    _consecutiveErrors = 0;
+    return true;
   } catch (e) {
-    console.error('[DB Error]', e);
-    return { data: null, error: e, count: null };
+    _isConnected = false;
+    var classified = classifyError(e);
+    showToast(classified.userMessage, 'error', 5000);
+    return false;
+  }
+}
+
+// Safe query wrapper with error classification and retry
+async function dbQuery(fn) {
+  if (!_db) return { data: null, error: new Error('Not connected to Supabase'), count: null };
+
+  for (var attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+    try {
+      var result = await fn(_db);
+      if (result.error) {
+        var classified = classifyError(result.error);
+        console.warn('[DB]', classified.type + ':', result.error.message);
+
+        if (classified.retryable && attempt < MAX_RETRY_ATTEMPTS) {
+          console.log('[DB] Retrying in ' + RETRY_DELAY_MS + 'ms (attempt ' + (attempt + 1) + ')...');
+          await new Promise(function(resolve) { setTimeout(resolve, RETRY_DELAY_MS); });
+          continue;
+        }
+
+        _consecutiveErrors++;
+        if (classified.type === 'auth') {
+          _isConnected = false;
+          updateConnectionBadge();
+          updateSetupBanner();
+        }
+        if (_consecutiveErrors >= 3 && _isConnected) {
+          _isConnected = false;
+          updateConnectionBadge();
+          updateSetupBanner();
+          showToast('Connection lost — switching to Demo Mode. Check Settings to reconnect.', 'warning', 6000);
+        }
+        result._classified = classified;
+        return result;
+      }
+      _consecutiveErrors = 0;
+      return result;
+    } catch (e) {
+      var classified = classifyError(e);
+      console.error('[DB Error]', classified.type + ':', e.message || e);
+
+      if (classified.retryable && attempt < MAX_RETRY_ATTEMPTS) {
+        console.log('[DB] Retrying in ' + RETRY_DELAY_MS + 'ms (attempt ' + (attempt + 1) + ')...');
+        await new Promise(function(resolve) { setTimeout(resolve, RETRY_DELAY_MS); });
+        continue;
+      }
+
+      _consecutiveErrors++;
+      if (_consecutiveErrors >= 3 && _isConnected) {
+        _isConnected = false;
+        updateConnectionBadge();
+        updateSetupBanner();
+        showToast('Connection lost — switching to Demo Mode. Check Settings to reconnect.', 'warning', 6000);
+      }
+      return { data: null, error: e, count: null, _classified: classified };
+    }
   }
 }
 
@@ -111,6 +238,14 @@ async function loadDashboard() {
       dbQuery(function(db) { return db.from('sales').select('total').gte('created_at', today + 'T00:00:00'); }),
       dbQuery(function(db) { return db.from('appointments').select('id', { count: 'exact', head: true }).eq('appointment_date', today); }),
     ]);
+    var hasErrors = [pRes, lRes, sRes, aRes].some(function(r) { return r.error; });
+    if (hasErrors) {
+      var firstErr = [pRes, lRes, sRes, aRes].find(function(r) { return r.error; });
+      var classified = firstErr._classified || classifyError(firstErr.error);
+      showToast('Dashboard: ' + classified.userMessage, 'error', 5000);
+      renderDemoDashboard();
+      return;
+    }
     var totalProducts = pRes.count || 0;
     var lowStock = lRes.count || 0;
     var todayRevenue = (sRes.data || []).reduce(function(s,r) { return s + (parseFloat(r.total)||0); }, 0);
@@ -119,7 +254,9 @@ async function loadDashboard() {
     await Promise.all([loadRecentActivity(), loadLowStockAlerts()]);
     renderDemoChart();
   } catch(e) {
-    console.error(e);
+    console.error('[Dashboard Error]', e);
+    var classified = classifyError(e);
+    showToast('Dashboard: ' + classified.userMessage, 'error', 5000);
     renderDemoDashboard();
   }
 }
@@ -248,7 +385,13 @@ var editingProductId = null;
 async function loadInventory() {
   document.getElementById('inventory-tbody').innerHTML = loadingRow(8);
   var res = await dbQuery(function(db) { return db.from('products').select('*').eq('is_active', true).order('name'); });
-  if (res.error && !_isConnected) { renderDemoInventory(); return; }
+  if (res.error) {
+    if (_isConnected) {
+      var classified = res._classified || classifyError(res.error);
+      showToast('Inventory: ' + classified.userMessage, 'error', 5000);
+    }
+    renderDemoInventory(); return;
+  }
   allProducts = res.data || [];
   if (!allProducts.length && !_isConnected) renderDemoInventory();
   else renderInventoryTable(allProducts);
@@ -335,7 +478,7 @@ async function saveProduct() {
   var res = editingProductId
     ? await dbQuery(function(db){return db.from('products').update(data).eq('id',editingProductId).select().single();})
     : await dbQuery(function(db){return db.from('products').insert({...data,is_active:true}).select().single();});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  if (res.error) { showToast((res._classified||classifyError(res.error)).userMessage,'error',5000); return; }
   closeModal('product-modal'); showToast(editingProductId?'Updated ✓':'Added ✓','success'); loadInventory();
 }
 
@@ -343,7 +486,7 @@ async function deleteProduct(id) {
   if (!confirm('Delete this product?')) return;
   if (!_isConnected) { allProducts=allProducts.filter(function(p){return p.id!==id;}); renderInventoryTable(allProducts); showToast('Deleted','success'); return; }
   var res = await dbQuery(function(db){return db.from('products').update({is_active:false}).eq('id',id);});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  if (res.error) { showToast((res._classified||classifyError(res.error)).userMessage,'error',5000); return; }
   showToast('Deleted','success'); loadInventory();
 }
 
@@ -464,7 +607,7 @@ async function saveService() {
   var res=editingServiceId
     ? await dbQuery(function(db){return db.from('services').update(data).eq('id',editingServiceId);})
     : await dbQuery(function(db){return db.from('services').insert({...data,is_active:true});});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  if (res.error) { showToast((res._classified||classifyError(res.error)).userMessage,'error',5000); return; }
   closeModal('service-modal'); showToast('Service saved ✓','success'); loadServices();
 }
 async function toggleService(id, active) {
@@ -489,7 +632,13 @@ async function fetchAppointmentsForDate(date) {
   setText('appt-date-label', date.toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'}));
   document.getElementById('appointments-list').innerHTML='<div class="loading-spinner"></div>';
   var res=await dbQuery(function(db){return db.from('appointments').select('*').eq('appointment_date',dateStr).order('appointment_time');});
-  if (res.error && !_isConnected) { renderDemoAppointments(); return; }
+  if (res.error) {
+    if (_isConnected) {
+      var classified = res._classified || classifyError(res.error);
+      showToast('Appointments: ' + classified.userMessage, 'error', 5000);
+    }
+    renderDemoAppointments(); return;
+  }
   allAppointments=res.data||[];
   renderAppointments(allAppointments);
 }
@@ -514,7 +663,7 @@ function renderAppointments(appts) {
 async function updateApptStatus(id, status) {
   if (!_isConnected) { var a=allAppointments.find(function(x){return x.id===id;}); if(a){a.status=status;renderAppointments(allAppointments);} showToast('Updated','success'); return; }
   var res=await dbQuery(function(db){return db.from('appointments').update({status}).eq('id',id);});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  if (res.error) { showToast((res._classified||classifyError(res.error)).userMessage,'error',5000); return; }
   showToast('Updated ✓','success'); fetchAppointmentsForDate(selectedDate);
 }
 function openAddAppointmentModal() {
@@ -545,7 +694,7 @@ async function saveAppointment() {
     renderAppointments(allAppointments); closeModal('appt-modal'); showToast('Saved (demo)','success'); return;
   }
   var res=editingApptId?await dbQuery(function(db){return db.from('appointments').update(data).eq('id',editingApptId);}):await dbQuery(function(db){return db.from('appointments').insert(data);});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  if (res.error) { showToast((res._classified||classifyError(res.error)).userMessage,'error',5000); return; }
   closeModal('appt-modal'); showToast('Appointment saved ✓','success'); fetchAppointmentsForDate(selectedDate);
 }
 
@@ -582,7 +731,7 @@ async function processSale() {
   var saleData={client_name:clientName,items:posCart,subtotal,discount,total,payment_method:payMethod,status:'completed'};
   if (!_isConnected) { allSales.unshift({id:'sale'+Date.now(),...saleData,created_at:new Date().toISOString()}); showToast('₱'+formatNumber(total)+' sale for '+clientName+' ✓','success'); clearCart(); return; }
   var res=await dbQuery(function(db){return db.from('sales').insert(saleData);});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
+  if (res.error) { showToast((res._classified||classifyError(res.error)).userMessage,'error',5000); return; }
   showToast('₱'+formatNumber(total)+' processed ✓','success'); clearCart(); loadSalesHistory();
 }
 async function loadSalesHistory() {
@@ -664,7 +813,7 @@ function renderSuppliersTable(suppliers) {
 }
 function openAddSupplierModal(){editingSuppId=null;setText('supplier-modal-title','Add Supplier');document.getElementById('supplier-form').reset();openModal('supplier-modal');}
 function editSupplier(id){var s=allSuppliers.find(function(x){return x.id===id;});if(!s)return;editingSuppId=id;setText('supplier-modal-title','Edit Supplier');setVal('supf-name',s.name);setVal('supf-contact',s.contact_person||'');setVal('supf-phone',s.phone||'');setVal('supf-email',s.email||'');setVal('supf-address',s.address||'');openModal('supplier-modal');}
-async function saveSupplier(){var data={name:getVal('supf-name').trim(),contact_person:getVal('supf-contact').trim()||null,phone:getVal('supf-phone').trim()||null,email:getVal('supf-email').trim()||null,address:getVal('supf-address').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingSuppId){var i=allSuppliers.findIndex(function(s){return s.id===editingSuppId;});if(i>-1)allSuppliers[i]={...allSuppliers[i],...data};}else allSuppliers.push({id:'sup'+Date.now(),...data,is_active:true});renderSuppliersTable(allSuppliers);closeModal('supplier-modal');showToast('Saved','success');return;}var res=editingSuppId?await dbQuery(function(db){return db.from('suppliers').update(data).eq('id',editingSuppId);}):await dbQuery(function(db){return db.from('suppliers').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('supplier-modal');showToast('Saved ✓','success');loadSuppliers();}
+async function saveSupplier(){var data={name:getVal('supf-name').trim(),contact_person:getVal('supf-contact').trim()||null,phone:getVal('supf-phone').trim()||null,email:getVal('supf-email').trim()||null,address:getVal('supf-address').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingSuppId){var i=allSuppliers.findIndex(function(s){return s.id===editingSuppId;});if(i>-1)allSuppliers[i]={...allSuppliers[i],...data};}else allSuppliers.push({id:'sup'+Date.now(),...data,is_active:true});renderSuppliersTable(allSuppliers);closeModal('supplier-modal');showToast('Saved','success');return;}var res=editingSuppId?await dbQuery(function(db){return db.from('suppliers').update(data).eq('id',editingSuppId);}):await dbQuery(function(db){return db.from('suppliers').insert({...data,is_active:true});});if(res.error){showToast((res._classified||classifyError(res.error)).userMessage,'error',5000);return;}closeModal('supplier-modal');showToast('Saved ✓','success');loadSuppliers();}
 
 // ============================================================
 // STAFF
@@ -675,14 +824,14 @@ function getDemoStaff(){return [{id:'st1',name:'Meera',role:'Owner / Aestheticia
 function renderStaffTable(staff){var tbody=document.getElementById('staff-tbody');if(!staff.length){tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div><h3>No staff yet</h3></div></td></tr>';return;}tbody.innerHTML=staff.map(function(s){return '<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="user-avatar" style="width:32px;height:32px;font-size:0.75rem">'+s.name.charAt(0).toUpperCase()+'</div><span style="font-weight:600">'+s.name+'</span></div></td><td><span class="badge badge-gold">'+(s.role||'Staff')+'</span></td><td class="td-muted">'+(s.phone||'—')+'</td><td class="td-muted">'+(s.email||'—')+'</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="editStaff(\''+s.id+'\')">Edit</button></td></tr>';}).join('');}
 function openAddStaffModal(){editingStaffId=null;setText('staff-modal-title','Add Staff Member');document.getElementById('staff-form').reset();openModal('staff-modal');}
 function editStaff(id){var s=allStaff.find(function(x){return x.id===id;});if(!s)return;editingStaffId=id;setText('staff-modal-title','Edit Staff Member');setVal('stf-name',s.name);setVal('stf-role',s.role||'');setVal('stf-phone',s.phone||'');setVal('stf-email',s.email||'');openModal('staff-modal');}
-async function saveStaff(){var data={name:getVal('stf-name').trim(),role:getVal('stf-role').trim()||null,phone:getVal('stf-phone').trim()||null,email:getVal('stf-email').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingStaffId){var i=allStaff.findIndex(function(s){return s.id===editingStaffId;});if(i>-1)allStaff[i]={...allStaff[i],...data};}else allStaff.push({id:'st'+Date.now(),...data,is_active:true});renderStaffTable(allStaff);closeModal('staff-modal');showToast('Saved','success');return;}var res=editingStaffId?await dbQuery(function(db){return db.from('staff').update(data).eq('id',editingStaffId);}):await dbQuery(function(db){return db.from('staff').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('staff-modal');showToast('Saved ✓','success');loadStaff();}
+async function saveStaff(){var data={name:getVal('stf-name').trim(),role:getVal('stf-role').trim()||null,phone:getVal('stf-phone').trim()||null,email:getVal('stf-email').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingStaffId){var i=allStaff.findIndex(function(s){return s.id===editingStaffId;});if(i>-1)allStaff[i]={...allStaff[i],...data};}else allStaff.push({id:'st'+Date.now(),...data,is_active:true});renderStaffTable(allStaff);closeModal('staff-modal');showToast('Saved','success');return;}var res=editingStaffId?await dbQuery(function(db){return db.from('staff').update(data).eq('id',editingStaffId);}):await dbQuery(function(db){return db.from('staff').insert({...data,is_active:true});});if(res.error){showToast((res._classified||classifyError(res.error)).userMessage,'error',5000);return;}closeModal('staff-modal');showToast('Saved ✓','success');loadStaff();}
 
 // ============================================================
 // SETTINGS
 // ============================================================
-function updateConnectionBadge(){var el=document.getElementById('connection-status');if(!el)return;el.innerHTML=_isConnected?'<span class="badge badge-green">✓ Connected to Supabase</span>':'<span class="badge badge-orange">Not Connected (Demo Mode)</span>';}
-function saveSupabaseConfig(){var url=getVal('cfg-url').trim(),key=getVal('cfg-key').trim();if(!url||!key){showToast('Enter both URL and key','error');return;}localStorage.setItem('mp_supabase_url',url);localStorage.setItem('mp_supabase_key',key);var client=initSupabase(url,key);updateConnectionBadge();updateSetupBanner();if(client){showToast('Connected ✓ — Reloading…','success');setTimeout(function(){navigateTo('dashboard');},800);}else{showToast('Could not connect. Check credentials.','error');}}
-async function testConnection(){if(!_isConnected){showToast('Not connected','warning');return;}var res=await dbQuery(function(db){return db.from('products').select('id').limit(1);});res.error?showToast('Test failed: '+res.error.message,'error'):showToast('Connection test passed ✓','success');}
+function updateConnectionBadge(){var el=document.getElementById('connection-status');if(!el)return;el.innerHTML=_isConnected?'<span class="badge badge-green">Connected to Supabase</span>':'<span class="badge badge-orange">Not Connected (Demo Mode)</span>';}
+async function saveSupabaseConfig(){var url=getVal('cfg-url').trim(),key=getVal('cfg-key').trim();if(!url||!key){showToast('Enter both URL and API key','error');return;}if(!isValidSupabaseUrl(url)){showToast('Invalid URL format. Expected: https://xxxxx.supabase.co','error',5000);return;}if(!isValidSupabaseKey(key)){showToast('Invalid API key. The key should start with "eyJ..."','error',5000);return;}showToast('Testing connection…','info',10000);var client=initSupabase(url,key);if(!client){updateConnectionBadge();updateSetupBanner();return;}var ok=await verifyConnection();updateConnectionBadge();updateSetupBanner();if(ok){localStorage.setItem('mp_supabase_url',url);localStorage.setItem('mp_supabase_key',key);showToast('Connected and verified — loading data…','success');setTimeout(function(){navigateTo('dashboard');},800);}else{_db=null;_isConnected=false;updateConnectionBadge();updateSetupBanner();}}
+async function testConnection(){if(!_isConnected||!_db){showToast('Not connected — configure Supabase in Settings first','warning');return;}showToast('Testing connection…','info',8000);var ok=await verifyConnection();updateConnectionBadge();updateSetupBanner();if(ok){showToast('Connection test passed — Supabase is reachable','success');}}
 function copySQLSchema(){var ta=document.querySelector('textarea[readonly]');if(!ta)return;navigator.clipboard.writeText(ta.value).then(function(){showToast('SQL copied ✓','success');}).catch(function(){showToast('Copy failed — select manually','error');});}
 
 // ============================================================
@@ -716,7 +865,16 @@ document.addEventListener('DOMContentLoaded', function() {
   if (savedUrl && savedKey) {
     setVal('cfg-url', savedUrl);
     setVal('cfg-key', savedKey);
-    initSupabase(savedUrl, savedKey);
+    var client = initSupabase(savedUrl, savedKey);
+    if (client) {
+      verifyConnection().then(function(ok) {
+        updateConnectionBadge();
+        updateSetupBanner();
+        if (!ok) {
+          showToast('Could not verify Supabase connection — running in Demo Mode', 'warning', 5000);
+        }
+      });
+    }
   }
   updateConnectionBadge();
   updateSetupBanner();
@@ -725,4 +883,22 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   navigateTo('dashboard');
   renderCart();
+
+  // Monitor network connectivity
+  window.addEventListener('offline', function() {
+    showToast('You are offline — data changes will not be saved', 'warning', 5000);
+  });
+  window.addEventListener('online', function() {
+    showToast('Back online', 'info', 3000);
+    if (_db && !_isConnected) {
+      verifyConnection().then(function(ok) {
+        updateConnectionBadge();
+        updateSetupBanner();
+        if (ok) {
+          showToast('Reconnected to Supabase', 'success');
+          _consecutiveErrors = 0;
+        }
+      });
+    }
+  });
 });
