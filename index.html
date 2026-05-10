@@ -82,7 +82,24 @@
 </head>
 <body>
 
-<div class="app-wrapper">
+<!-- ===== LOGIN SCREEN ===== -->
+<div id="login-screen" style="display:flex; height:100vh; align-items:center; justify-content:center; background:var(--dark); color:white; flex-direction:column; gap:20px;">
+  <div style="text-align:center; background:#1A130A; padding:40px; border-radius:12px; border:1px solid rgba(201,151,28,0.2); box-shadow:0 10px 30px rgba(0,0,0,0.5); width:320px;">
+    <h2 style="color:var(--gold); font-family:var(--font-display); margin-bottom:10px;">Meeras Panemorfi</h2>
+    <p style="color:var(--gray); font-size:0.85rem; margin-bottom:30px;">Authorized Access Only</p>
+    <div style="margin-bottom:15px; text-align:left;">
+      <label style="font-size:0.75rem; color:var(--gold-light);">Email</label>
+      <input type="email" id="login-email" style="width:100%; padding:10px; border-radius:6px; border:1px solid rgba(201,151,28,0.3); background:transparent; color:white; margin-top:5px;" placeholder="admin@meeras.com">
+    </div>
+    <div style="margin-bottom:25px; text-align:left;">
+      <label style="font-size:0.75rem; color:var(--gold-light);">Password</label>
+      <input type="password" id="login-pass" style="width:100%; padding:10px; border-radius:6px; border:1px solid rgba(201,151,28,0.3); background:transparent; color:white; margin-top:5px;" placeholder="••••••••">
+    </div>
+    <button class="btn btn-gold" style="width:100%; padding:12px; font-weight:bold;" onclick="handleLogin()">LOGIN TO SYSTEM</button>
+  </div>
+</div>
+
+<div class="app-wrapper" id="app-wrapper" style="display:none;">
 
   <!-- ===== SIDEBAR ===== -->
   <aside class="sidebar" id="sidebar">
@@ -96,39 +113,20 @@
 
     <nav class="sidebar-nav">
       <div class="nav-section-label">Main</div>
-      <a class="nav-item" data-page="dashboard">
+      <a class="nav-item" data-page="dashboard" title="View your high-level overview and alerts ⓘ">
         <span class="nav-icon">⬡</span> Dashboard
       </a>
-      <a class="nav-item" data-page="inventory">
+      <a class="nav-item" data-page="inventory" title="Manage all products, stock levels, and prices ⓘ">
         <span class="nav-icon">📦</span> Inventory
         <span class="nav-badge" id="low-stock-badge" style="display:none">0</span>
       </a>
-      <a class="nav-item" data-page="services">
-        <span class="nav-icon">✨</span> Services
-      </a>
-
-      <div class="nav-section-label">Operations</div>
-      <a class="nav-item" data-page="appointments">
-        <span class="nav-icon">📅</span> Appointments
-      </a>
-      <a class="nav-item" data-page="sales">
-        <span class="nav-icon">💰</span> Sales &amp; POS
-      </a>
 
       <div class="nav-section-label">Management</div>
-      <a class="nav-item" data-page="reports">
+      <a class="nav-item" data-page="reports" title="Analyze business performance, sales, and forecasting ⓘ">
         <span class="nav-icon">📊</span> Reports
       </a>
-      <a class="nav-item" data-page="suppliers">
+      <a class="nav-item" data-page="suppliers" title="Manage your supplier contacts and details ⓘ">
         <span class="nav-icon">🚚</span> Suppliers
-      </a>
-      <a class="nav-item" data-page="staff">
-        <span class="nav-icon">👥</span> Staff
-      </a>
-
-      <div class="nav-section-label">System</div>
-      <a class="nav-item" data-page="settings">
-        <span class="nav-icon">⚙</span> Settings
       </a>
     </nav>
 
@@ -157,23 +155,14 @@
           ⚠
           <span class="notif-dot" id="header-alert-dot" style="display:none"></span>
         </button>
-        <button class="header-btn" onclick="navigateTo('appointments')" title="Today's Appointments">📅</button>
-        <button class="header-btn" onclick="navigateTo('settings')" title="Settings">⚙</button>
+
+        <button class="header-btn" onclick="handleLogout()" title="Logout" style="color:var(--red);">⏻</button>
       </div>
     </header>
 
     <!-- ========== DASHBOARD ========== -->
     <div id="page-dashboard" class="page-content">
       
-      <div class="setup-banner" id="setup-banner">
-        <div class="setup-icon">🔌</div>
-        <div>
-          <h3>Connect Supabase to activate live data</h3>
-          <p>Currently running in demo mode. Go to <strong style="color:var(--gold-light)">Settings → Supabase Config</strong> to connect your database and enable full functionality.</p>
-          <code>Settings → Supabase Configuration → Enter URL &amp; API Key → Save</code>
-        </div>
-      </div>
-
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-label">Total Products</div>
@@ -187,24 +176,13 @@
           <div class="stat-sub">Items need restocking</div>
           <div class="stat-icon">⚠</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Today's Revenue</div>
-          <div class="stat-value currency" id="stat-revenue">—</div>
-          <div class="stat-sub">Completed transactions</div>
-          <div class="stat-icon">💰</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Today's Appointments</div>
-          <div class="stat-value" id="stat-appts">—</div>
-          <div class="stat-sub">Bookings for today</div>
-          <div class="stat-icon">📅</div>
-        </div>
+
       </div>
 
       <div class="quick-row">
         <div class="card">
           <div class="card-header">
-            <div class="card-title">📊 Weekly Revenue</div>
+            <div class="card-title">📊 Weekly Sales & Stock Trends</div>
           </div>
           <div class="card-body" style="padding:16px">
             <div style="height:220px;position:relative">
@@ -287,146 +265,7 @@
       </div>
     </div>
 
-    <!-- ========== SERVICES ========== -->
-    <div id="page-services" class="page-content hidden">
-      <div class="section-header">
-        <div class="section-header-left">
-          <h2>SERVICES</h2>
-          <p>Beauty &amp; wellness treatment offerings</p>
-        </div>
-        <button class="btn btn-gold" onclick="openAddServiceModal()">+ Add Service</button>
-      </div>
 
-      <div class="filter-bar">
-        <div class="search-box">
-          <span class="search-icon">🔍</span>
-          <input type="text" placeholder="Search services..." oninput="filterServices(this.value)" />
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Service Name</th><th>Category</th><th>Price</th><th>Duration</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody id="services-tbody">
-              <tr><td colspan="6" style="text-align:center;padding:30px"><div class="loading-spinner"></div></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========== APPOINTMENTS ========== -->
-    <div id="page-appointments" class="page-content hidden">
-      <div class="section-header">
-        <div class="section-header-left">
-          <h2>APPOINTMENTS</h2>
-          <p>Schedule &amp; manage client bookings</p>
-        </div>
-        <button class="btn btn-gold" onclick="openAddAppointmentModal()">+ New Appointment</button>
-      </div>
-
-      <div id="date-strip" class="date-strip"></div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title" id="appt-date-label">Today</div>
-          <button class="btn btn-ghost btn-sm" onclick="fetchAppointmentsForDate(selectedDate)">↻ Refresh</button>
-        </div>
-        <div class="card-body">
-          <div id="appointments-list">
-            <div class="loading-spinner"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========== SALES / POS ========== -->
-    <div id="page-sales" class="page-content hidden">
-      <div class="section-header">
-        <div class="section-header-left">
-          <h2>SALES &amp; POS</h2>
-          <p>Point of sale &amp; transaction history</p>
-        </div>
-      </div>
-
-      <div id="sales-tabs" class="tabs">
-        <button class="tab-btn active" id="sales-tab-1" data-tab="sales-pos" onclick="switchTab('sales-tabs','sales-pos')">🛒 New Sale</button>
-        <button class="tab-btn" id="sales-tab-2" data-tab="sales-history" onclick="switchTab('sales-tabs','sales-history');loadSalesHistory()">📋 History</button>
-      </div>
-
-      <div id="sales-pos" class="tab-content active">
-        <div class="pos-grid">
-          <div class="pos-left card" style="padding:0;overflow:hidden">
-            <div style="padding:16px;border-bottom:1px solid rgba(201,151,28,0.1)">
-              <div style="margin-bottom:10px">
-                <label style="font-size:0.72rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--gray)">Client Name</label>
-                <input type="text" id="pos-client" placeholder="Walk-in Client" style="display:block;width:100%;margin-top:6px;padding:8px 12px;border:1px solid rgba(201,151,28,0.2);border-radius:8px;font-family:var(--font-body);font-size:0.83rem;outline:none" />
-              </div>
-              <div class="pos-cat-tabs" id="pos-cat-tabs">
-                <button class="pos-cat-btn active" onclick="filterPOS(this,'')">All</button>
-                <button class="pos-cat-btn" onclick="filterPOS(this,'Facial')">Facial</button>
-                <button class="pos-cat-btn" onclick="filterPOS(this,'Waxing')">Waxing</button>
-                <button class="pos-cat-btn" onclick="filterPOS(this,'Threading')">Threading</button>
-                <button class="pos-cat-btn" onclick="filterPOS(this,'Tinting')">Tinting</button>
-                <button class="pos-cat-btn" onclick="filterPOS(this,'Meso Treatments')">Meso</button>
-                <button class="pos-cat-btn" onclick="filterPOS(this,'Exilis Treatments')">Exilis</button>
-              </div>
-            </div>
-            <div style="padding:0 16px;overflow-y:auto;max-height:calc(100vh - 300px)">
-              <div id="pos-services" class="pos-services"></div>
-            </div>
-          </div>
-
-          <div class="cart-panel">
-            <div class="cart-header">
-              <h3>🛒 CART</h3>
-            </div>
-            <div class="cart-body" id="cart-list"></div>
-            <div class="cart-footer">
-              <div class="cart-totals">
-                <div class="cart-row"><span>Subtotal</span><span id="cart-subtotal">₱0</span></div>
-                <div class="cart-row">
-                  <span>Discount (₱)</span>
-                  <input type="number" id="pos-discount" placeholder="0" min="0" onchange="renderCart()" style="width:80px;padding:3px 8px;border:1px solid rgba(201,151,28,0.2);border-radius:4px;font-size:0.78rem;text-align:right;outline:none" />
-                </div>
-                <div class="cart-row total"><span>TOTAL</span><span class="cart-total-val" id="cart-total">₱0</span></div>
-              </div>
-              <div class="form-group" style="margin-bottom:10px">
-                <label>Payment Method</label>
-                <select id="pos-payment" style="padding:8px;border:1px solid rgba(201,151,28,0.2);border-radius:8px;font-family:var(--font-body);outline:none">
-                  <option value="cash">Cash</option>
-                  <option value="gcash">GCash</option>
-                  <option value="card">Credit/Debit Card</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                </select>
-              </div>
-              <div style="display:flex;gap:8px">
-                <button class="btn btn-ghost btn-sm" onclick="clearCart()" style="flex:1">Clear</button>
-                <button class="btn btn-gold" onclick="processSale()" style="flex:2">Process Sale ✓</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div id="sales-history" class="tab-content">
-        <div class="card">
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th>Date</th><th>Client</th><th>Services</th><th>Total</th><th>Payment</th><th>Status</th></tr>
-              </thead>
-              <tbody id="sales-tbody">
-                <tr><td colspan="6" style="text-align:center;padding:30px"><div class="loading-spinner"></div></td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- ========== REPORTS ========== -->
     <div id="page-reports" class="page-content hidden">
@@ -435,47 +274,79 @@
           <h2>REPORTS &amp; ANALYTICS</h2>
           <p>Performance insights &amp; data analysis</p>
         </div>
-        <button class="btn btn-outline" onclick="loadReports()">↻ Refresh</button>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <button class="btn btn-danger" onclick="clearRevenue()" title="Reset and delete all revenue history ⓘ">🗑 Clear Revenue</button>
+          <button class="btn btn-outline" onclick="loadReports()">↻ Refresh</button>
+        </div>
       </div>
 
-      <div class="stats-grid" style="margin-bottom:20px">
-        <div class="stat-card">
-          <div class="stat-label">Monthly Revenue</div>
-          <div class="stat-value" id="rpt-revenue">—</div>
-          <div class="stat-icon">💰</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Completed Appts.</div>
-          <div class="stat-value" id="rpt-completed">—</div>
-          <div class="stat-icon">✓</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Bookings</div>
-          <div class="stat-value" id="rpt-total-appts">—</div>
-          <div class="stat-icon">📅</div>
-        </div>
-        <div class="stat-card">
+      <div class="stats-grid" style="margin-bottom:20px; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px;">
+        <div class="stat-card" title="Total active products in the system ⓘ">
           <div class="stat-label">Active Products</div>
           <div class="stat-value" id="rpt-products">—</div>
           <div class="stat-icon">📦</div>
         </div>
+        <div class="stat-card" title="Products with healthy stock levels ⓘ">
+          <div class="stat-label">Well Stocked</div>
+          <div class="stat-value" id="rpt-well" style="color:var(--green)">—</div>
+          <div class="stat-icon">✔</div>
+        </div>
+        <div class="stat-card" title="Products that are running low and need restocking ⓘ">
+          <div class="stat-label">Low Stock</div>
+          <div class="stat-value" id="rpt-low" style="color:var(--orange)">—</div>
+          <div class="stat-icon">⚠</div>
+        </div>
+        <div class="stat-card" title="Products that are completely out of stock ⓘ">
+          <div class="stat-label">Out of Stock</div>
+          <div class="stat-value" id="rpt-out" style="color:var(--red)">—</div>
+          <div class="stat-icon">❌</div>
+        </div>
+        <div class="stat-card" title="Total sales revenue generated from stock sold this month ⓘ">
+          <div class="stat-label">Revenue (Month)</div>
+          <div class="stat-value" id="rpt-revenue-total" style="color:var(--gold-dark)">—</div>
+          <div class="stat-icon">₱</div>
+        </div>
       </div>
 
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
-        <div class="card">
-          <div class="card-header"><div class="card-title">📊 Revenue Chart (This Month)</div></div>
-          <div class="card-body">
+        <div class="card" style="grid-column: span 2;">
+          <div class="card-header"><div class="card-title">📊 Sales & Stock Trends (This Month)</div></div>
+          <div class="card-body" title="This bar chart shows the exact quantity of items consumed or sold each day ⓘ">
             <canvas id="rpt-revenue-chart" height="200" style="width:100%"></canvas>
           </div>
         </div>
+        <div class="card" style="grid-column: span 2;">
+          <div class="card-header"><div class="card-title">📉 Revenue Curve (This Month)</div></div>
+          <div class="card-body" title="This line graph shows the revenue generated each day based on items sold ⓘ">
+            <canvas id="rpt-revenue-curve-chart" height="200" style="width:100%"></canvas>
+          </div>
+        </div>
         <div class="card">
-          <div class="card-header"><div class="card-title">🏆 Top Services</div></div>
-          <div class="card-body" id="top-services-list">
-            <div class="report-metric"><span class="report-metric-label">Korean Black Pearl</span><span class="report-metric-value badge badge-gold">₱1,800</span></div>
-            <div class="report-metric"><span class="report-metric-label">Exilis Tummy</span><span class="report-metric-value badge badge-gold">₱2,000</span></div>
-            <div class="report-metric"><span class="report-metric-label">Meso Acne</span><span class="report-metric-value badge badge-teal">₱1,500</span></div>
-            <div class="report-metric"><span class="report-metric-label">Brazilian Waxing</span><span class="report-metric-value badge badge-teal">₱800</span></div>
-            <div class="report-metric"><span class="report-metric-label">Diamond Peel</span><span class="report-metric-value badge badge-green">₱500</span></div>
+          <div class="card-header"><div class="card-title">📈 Sales & Inventory Forecasting</div></div>
+          <div class="card-body" style="padding:16px;">
+            <p style="font-size:0.85rem; color:var(--gray); margin-bottom:12px;">Predicted next month stock consumption and sales volume based on historical usage.</p>
+            <div style="font-size:1.8rem; font-weight:bold; color:var(--gold-dark); margin-bottom:12px;" id="rpt-forecast">—</div>
+            <div style="font-size:0.75rem; color:var(--green);" id="rpt-forecast-trend">Analyzing historical data...</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">🔄 Inventory Turnover Velocity</div></div>
+          <div class="card-body" style="padding:16px;">
+            <p style="font-size:0.85rem; color:var(--gray); margin-bottom:12px;">Speed at which stock is sold and replaced.</p>
+            <div style="font-size:1.8rem; font-weight:bold; color:var(--dark); margin-bottom:12px;" id="rpt-turnover">—</div>
+            <div style="font-size:0.75rem; color:var(--gray);">Target: > 4.0 / month for healthy cashflow</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title" title="Total capital locked up in your current stock ⓘ">🏆 Top Valuable Inventory</div></div>
+          <div class="card-body" id="top-inventory-list">
+            <div class="loading-spinner"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title" title="Top 3 Suppliers whose products have generated the most revenue ⓘ">🌟 Top Suppliers (By Revenue)</div></div>
+          <div class="card-body" id="top-suppliers-list">
+            <div class="loading-spinner"></div>
           </div>
         </div>
       </div>
@@ -504,190 +375,9 @@
       </div>
     </div>
 
-    <!-- ========== STAFF ========== -->
-    <div id="page-staff" class="page-content hidden">
-      <div class="section-header">
-        <div class="section-header-left">
-          <h2>STAFF MANAGEMENT</h2>
-          <p>Team members &amp; roles</p>
-        </div>
-        <button class="btn btn-gold" onclick="openAddStaffModal()">+ Add Staff</button>
-      </div>
-      <div class="card">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Staff Member</th><th>Role</th><th>Phone</th><th>Email</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody id="staff-tbody">
-              <tr><td colspan="6" style="text-align:center;padding:30px"><div class="loading-spinner"></div></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
 
-    <!-- ========== SETTINGS ========== -->
-    <div id="page-settings" class="page-content hidden">
-      <div class="section-header">
-        <div class="section-header-left">
-          <h2>SETTINGS</h2>
-          <p>System configuration &amp; preferences</p>
-        </div>
-      </div>
 
-      <!-- Supabase Config -->
-      <div class="settings-section">
-        <div class="settings-section-header">🔌 Supabase Configuration</div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-label">Connection Status</div>
-            <div class="settings-desc">Database connectivity</div>
-          </div>
-          <div id="connection-status"><span class="badge badge-orange">Not Connected</span></div>
-        </div>
-        <div style="padding:16px 20px">
-          <div class="alert alert-info" style="margin-bottom:16px">
-            <div>
-              <strong>How to set up Supabase:</strong><br>
-              1. Go to <a href="https://supabase.com" target="_blank" style="color:var(--gold-dark)">supabase.com</a> → Create a new project<br>
-              2. Go to <strong>SQL Editor</strong> → Run the schema from <code>js/supabase-config.js</code><br>
-              3. Go to <strong>Settings → API</strong> → Copy your Project URL &amp; anon public key<br>
-              4. Paste below and click Save
-            </div>
-          </div>
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Supabase Project URL</label>
-              <input type="url" id="cfg-url" placeholder="https://xxxxxxxxxxxx.supabase.co" />
-            </div>
-            <div class="form-group">
-              <label>Supabase Anon/Public Key</label>
-              <input type="text" id="cfg-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
-              <span class="form-hint">Found in Supabase Dashboard → Settings → API → Project API keys</span>
-            </div>
-          </div>
-          <div style="margin-top:12px">
-            <button class="btn btn-gold" onclick="saveSupabaseConfig()">💾 Save &amp; Connect</button>
-            <button class="btn btn-ghost" style="margin-left:8px" onclick="testConnection()">Test Connection</button>
-          </div>
-        </div>
-      </div>
 
-      <!-- Business Info -->
-      <div class="settings-section">
-        <div class="settings-section-header">🏪 Business Information</div>
-        <div style="padding:16px 20px">
-          <div class="form-grid form-grid-2">
-            <div class="form-group">
-              <label>Business Name</label>
-              <input type="text" value="Meeras Panemorfi" />
-            </div>
-            <div class="form-group">
-              <label>Tagline</label>
-              <input type="text" value="Beauty and Wellness" />
-            </div>
-            <div class="form-group">
-              <label>Phone</label>
-              <input type="tel" value="09993962841 / 0951-186-2406" />
-            </div>
-            <div class="form-group">
-              <label>Operating Hours</label>
-              <input type="text" value="Monday–Sunday, 12:00 PM – 10:00 PM" />
-            </div>
-          </div>
-          <div style="margin-top:12px">
-            <button class="btn btn-gold" onclick="showToast('Business info saved','success')">💾 Save Changes</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Preferences -->
-      <div class="settings-section">
-        <div class="settings-section-header">⚙ Preferences</div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-label">Low Stock Notifications</div>
-            <div class="settings-desc">Alert when product falls below minimum stock</div>
-          </div>
-          <button class="toggle on" onclick="this.classList.toggle('on')"></button>
-        </div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-label">Auto Stock Deduction</div>
-            <div class="settings-desc">Deduct inventory when service is completed</div>
-          </div>
-          <button class="toggle" onclick="this.classList.toggle('on')"></button>
-        </div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-label">Appointment Reminders</div>
-            <div class="settings-desc">Show upcoming appointment alerts</div>
-          </div>
-          <button class="toggle on" onclick="this.classList.toggle('on')"></button>
-        </div>
-      </div>
-
-      <!-- SQL Schema -->
-      <div class="settings-section">
-        <div class="settings-section-header">🗄 Database Schema (SQL)</div>
-        <div style="padding:16px 20px">
-          <p style="font-size:0.8rem;color:var(--gray);margin-bottom:12px">Copy and run this SQL in your Supabase SQL Editor to create all required tables:</p>
-          <textarea readonly style="width:100%;height:200px;padding:12px;background:var(--dark);color:#E8B94F;border:1px solid rgba(201,151,28,0.3);border-radius:8px;font-family:monospace;font-size:0.72rem;resize:vertical;outline:none">-- Run in Supabase SQL Editor
-CREATE TABLE products (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL, category TEXT NOT NULL,
-  description TEXT, sku TEXT UNIQUE, unit TEXT DEFAULT 'pcs',
-  quantity INTEGER DEFAULT 0, min_stock INTEGER DEFAULT 5,
-  cost_price NUMERIC(10,2) DEFAULT 0, selling_price NUMERIC(10,2) DEFAULT 0,
-  supplier TEXT, is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE services (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL, category TEXT NOT NULL, description TEXT,
-  duration_minutes INTEGER DEFAULT 60, price NUMERIC(10,2) NOT NULL,
-  is_active BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE stock_transactions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  product_id UUID REFERENCES products(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('in','out','adjustment')),
-  quantity INTEGER NOT NULL, notes TEXT, reference TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE appointments (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  client_name TEXT NOT NULL, client_phone TEXT,
-  service_id UUID REFERENCES services(id), service_name TEXT,
-  appointment_date DATE NOT NULL, appointment_time TIME NOT NULL,
-  status TEXT DEFAULT 'pending', notes TEXT, amount NUMERIC(10,2),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE sales (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  appointment_id UUID REFERENCES appointments(id),
-  client_name TEXT NOT NULL, items JSONB DEFAULT '[]',
-  subtotal NUMERIC(10,2), discount NUMERIC(10,2) DEFAULT 0,
-  total NUMERIC(10,2), payment_method TEXT DEFAULT 'cash',
-  status TEXT DEFAULT 'completed', notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE suppliers (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL, contact_person TEXT, phone TEXT,
-  email TEXT, address TEXT, is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE staff (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL, role TEXT, phone TEXT, email TEXT,
-  is_active BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT NOW()
-);</textarea>
-          <button class="btn btn-outline btn-sm" style="margin-top:10px" onclick="copySQLSchema()">📋 Copy SQL</button>
-        </div>
-      </div>
-    </div>
 
   </div><!-- end main-content -->
 </div><!-- end app-wrapper -->
@@ -708,7 +398,7 @@ CREATE TABLE staff (
       <form id="product-form" onsubmit="return false">
         <div class="form-grid form-grid-2">
           <div class="form-group" style="grid-column:span 2">
-            <label>Product Name *</label>
+            <label title="The exact name of the product or item">Product Name * ⓘ</label>
             <input type="text" id="pf-name" placeholder="e.g. Facial Cleanser" required />
           </div>
           <div class="form-group">
@@ -735,7 +425,7 @@ CREATE TABLE staff (
             </select>
           </div>
           <div class="form-group">
-            <label>Current Quantity</label>
+            <label title="How many of these items you currently have in stock">Current Quantity ⓘ</label>
             <input type="number" id="pf-quantity" value="0" min="0" />
           </div>
           <div class="form-group">
@@ -743,17 +433,19 @@ CREATE TABLE staff (
             <input type="number" id="pf-min-stock" value="5" min="0" />
           </div>
           <div class="form-group">
-            <label>Cost Price (₱)</label>
+            <label title="How much you paid the supplier for this item">Cost Price (₱) ⓘ</label>
             <input type="number" id="pf-cost" placeholder="0.00" min="0" step="0.01" />
           </div>
           <div class="form-group">
-            <label>Selling Price (₱)</label>
+            <label title="How much you charge customers for this item (your markup)">Selling Price (₱) ⓘ</label>
             <input type="number" id="pf-price" placeholder="0.00" min="0" step="0.01" />
             <span class="form-hint">Leave 0 if not sold separately</span>
           </div>
           <div class="form-group" style="grid-column:span 2">
-            <label>Supplier</label>
-            <input type="text" id="pf-supplier" placeholder="Supplier name" />
+            <label title="The company or person who supplies this product">Supplier ⓘ</label>
+            <select id="pf-supplier">
+              <option value="">None / Unassigned</option>
+            </select>
           </div>
           <div class="form-group" style="grid-column:span 2">
             <label>Description</label>
@@ -777,19 +469,19 @@ CREATE TABLE staff (
       <button class="modal-close" onclick="closeModal('stock-modal')">✕</button>
     </div>
     <div class="modal-body">
-      <p style="font-weight:600;margin-bottom:16px;color:var(--dark)" id="stock-product-name">Product</p>
+      <p style="font-weight:600;margin-bottom:4px;color:var(--dark)" id="stock-product-name">Product</p>
+      <div id="stock-current-info" style="font-size:0.85rem; color:var(--gray); margin-bottom:16px;">Current Stock: —</div>
       <div class="form-grid">
         <div class="form-group">
-          <label>Adjustment Type</label>
-          <select id="stock-type">
-            <option value="in">Add Stock (IN)</option>
-            <option value="out">Remove Stock (OUT)</option>
-            <option value="adjustment">Manual Adjustment</option>
+          <label title="Whether you are consuming the item or restocking it">Adjustment Type ⓘ</label>
+          <select id="stock-type" onchange="updateStockPreview()">
+            <option value="out" selected>Remove Stock (- Out)</option>
+            <option value="in">Add Stock (+ In)</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Quantity</label>
-          <input type="number" id="stock-qty" value="1" min="1" />
+          <label title="How many items are being added or removed">Quantity ⓘ</label>
+          <input type="number" id="stock-qty" value="1" min="1" oninput="updateStockPreview()" />
         </div>
         <div class="form-group" style="grid-column:span 2">
           <label>Notes / Reason</label>
@@ -948,84 +640,11 @@ CREATE TABLE staff (
   </div>
 </div>
 
-<!-- Staff Modal -->
-<div class="modal-overlay" id="staff-modal">
-  <div class="modal" style="max-width:480px">
-    <div class="modal-header">
-      <h3 id="staff-modal-title">Add Staff Member</h3>
-      <button class="modal-close" onclick="closeModal('staff-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="staff-form" onsubmit="return false">
-        <div class="form-grid form-grid-2">
-          <div class="form-group">
-            <label>Full Name *</label>
-            <input type="text" id="stf-name" placeholder="Full name" required />
-          </div>
-          <div class="form-group">
-            <label>Role / Position</label>
-            <input type="text" id="stf-role" placeholder="e.g. Aesthetician, Nail Tech" />
-          </div>
-          <div class="form-group">
-            <label>Phone</label>
-            <input type="tel" id="stf-phone" placeholder="09XX-XXX-XXXX" />
-          </div>
-          <div class="form-group">
-            <label>Email</label>
-            <input type="email" id="stf-email" placeholder="email@example.com" />
-          </div>
-        </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('staff-modal')">Cancel</button>
-      <button class="btn btn-gold" onclick="saveStaff()">💾 Save Staff</button>
-    </div>
-  </div>
-</div>
+
 
 <script src="js/app.js"></script>
 <script>
   // Extra helpers not in app.js
-
-  function filterServices(query) {
-    const q = query.toLowerCase();
-    const filtered = allServices.filter(s =>
-      s.name.toLowerCase().includes(q) || s.category.toLowerCase().includes(q)
-    );
-    renderServicesTable(filtered);
-  }
-
-  function filterPOS(btn, category) {
-    document.querySelectorAll('.pos-cat-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const list = document.getElementById('pos-services');
-    const services = allServices.filter(s => s.is_active && (!category || s.category === category));
-    list.innerHTML = services.map(s => `
-      <div class="pos-service-item" onclick="addToCart('${s.id}','${escHtml(s.name)}',${s.price})">
-        <div style="font-weight:600;font-size:0.82rem">${s.name}</div>
-        <div style="color:var(--gold-dark);font-weight:600;margin-top:2px">₱${formatNumber(s.price)}</div>
-        <div style="font-size:0.7rem;color:var(--gray)">${s.category}</div>
-      </div>
-    `).join('');
-  }
-
-  function renderTopServices(appts) {
-    // Group by service_name
-    const counts = {};
-    appts.forEach(a => {
-      if (a.service_name) counts[a.service_name] = (counts[a.service_name] || 0) + 1;
-    });
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    const el = document.getElementById('top-services-list');
-    if (sorted.length) {
-      el.innerHTML = sorted.map(([name, cnt]) => `
-        <div class="report-metric">
-          <span class="report-metric-label">${name}</span>
-          <span class="badge badge-teal">${cnt} bookings</span>
-        </div>
-      `).join('');
-    }
   }
 
   function renderRevenueChart(sales) {
