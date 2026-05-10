@@ -51,6 +51,12 @@ function showToast(msg, type = 'info', duration = 3500) {
 
 // ---- NAVIGATION ----
 function navigateTo(page) {
+  var role = sessionStorage.getItem('mp_user_role');
+  if (role === 'staff' && (page === 'reports' || page === 'suppliers')) {
+    showToast('Access denied: Staff cannot view ' + page, 'error');
+    return;
+  }
+
   document.querySelectorAll('.page-content').forEach(function(p) { p.classList.add('hidden'); });
   document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
 
@@ -68,8 +74,7 @@ function navigateTo(page) {
     sales:        ['Sales & POS', 'Point of sale & transactions'],
     reports:      ['Reports & Analytics', 'Data insights & performance'],
     suppliers:    ['Suppliers', 'Vendor management'],
-    staff:        ['Staff', 'Team members'],
-    settings:     ['Settings', 'System configuration'],
+    staff:        ['Staff', 'Team members']
   };
   var t = titles[page] || ['', ''];
   setText('page-title', t[0]);
@@ -85,18 +90,12 @@ function navigateTo(page) {
   else if (page === 'staff')        loadStaff();
 }
 
-function updateSetupBanner() {
-  var banner = document.getElementById('setup-banner');
-  if (banner) banner.style.display = _isConnected ? 'none' : 'flex';
-}
+
 
 // ============================================================
 // DASHBOARD
 // ============================================================
 async function loadDashboard() {
-  updateSetupBanner();
-  updateConnectionBadge();
-
   if (!_isConnected) {
     renderDemoDashboard();
     renderDemoChart();
@@ -105,30 +104,50 @@ async function loadDashboard() {
 
   try {
     var today = new Date().toISOString().split('T')[0];
-    var [pRes, lRes, sRes, aRes] = await Promise.all([
+    var [pRes, lRes] = await Promise.all([
       dbQuery(function(db) { return db.from('products').select('id', { count: 'exact', head: true }).eq('is_active', true); }),
-      dbQuery(function(db) { return db.from('products').select('id', { count: 'exact', head: true }).lt('quantity', 5).gte('quantity', 0).eq('is_active', true); }),
-      dbQuery(function(db) { return db.from('sales').select('total').gte('created_at', today + 'T00:00:00'); }),
-      dbQuery(function(db) { return db.from('appointments').select('id', { count: 'exact', head: true }).eq('appointment_date', today); }),
+      dbQuery(function(db) { return db.from('products').select('id', { count: 'exact', head: true }).lt('quantity', 5).gte('quantity', 0).eq('is_active', true); })
     ]);
     var totalProducts = pRes.count || 0;
     var lowStock = lRes.count || 0;
-    var todayRevenue = (sRes.data || []).reduce(function(s,r) { return s + (parseFloat(r.total)||0); }, 0);
-    var todayAppts = aRes.count || 0;
-    updateDashboardStats(totalProducts, lowStock, todayRevenue, todayAppts);
+    updateDashboardStats(totalProducts, lowStock);
     await Promise.all([loadRecentActivity(), loadLowStockAlerts()]);
-    renderDemoChart();
+    loadDashboardChart();
   } catch(e) {
     console.error(e);
     renderDemoDashboard();
+    renderDemoChart();
   }
 }
 
-function updateDashboardStats(products, lowStock, revenue, appts) {
+async function loadDashboardChart() {
+  var res = await dbQuery(function(db){return db.from('stock_transactions').select('type, quantity, created_at');});
+  if(res.error) { renderDemoChart(); return; }
+  var txns = res.data || [];
+  
+  var canvas=document.getElementById('revenue-chart'); if(!canvas) return;
+  canvas.width=canvas.offsetWidth||560;
+  var ctx=canvas.getContext('2d');
+  
+  if(txns.length === 0) {
+    drawBarChart(ctx, canvas.width, 220, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [0,0,0,0,0,0,0]);
+    return;
+  }
+  
+  var groups={};
+  var outs = txns.filter(function(t){return t.type==='out';});
+  outs.forEach(function(t){var d=new Date(t.created_at).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}); groups[d]=(groups[d]||0)+(t.quantity||0);});
+  var days=Object.keys(groups);
+  if(days.length === 0) {
+    drawBarChart(ctx, canvas.width, 220, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [0,0,0,0,0,0,0]);
+    return;
+  }
+  drawBarChart(ctx, canvas.width, 220, days, days.map(function(d){return groups[d];}));
+}
+
+function updateDashboardStats(products, lowStock) {
   setText('stat-products',  products);
   setText('stat-low-stock', lowStock);
-  setText('stat-revenue',   '₱' + formatNumber(revenue));
-  setText('stat-appts',     appts);
   var badge = document.getElementById('low-stock-badge');
   if (badge) { badge.textContent = lowStock; badge.style.display = lowStock > 0 ? 'inline-block' : 'none'; }
   var dot = document.getElementById('header-alert-dot');
@@ -136,7 +155,7 @@ function updateDashboardStats(products, lowStock, revenue, appts) {
 }
 
 function renderDemoDashboard() {
-  updateDashboardStats(47, 3, 8500, 6);
+  updateDashboardStats(47, 3);
   renderDemoActivity();
   renderDemoLowStock();
 }
@@ -203,7 +222,7 @@ function renderDemoChart() {
   if (!canvas) return;
   canvas.width = canvas.offsetWidth || 560;
   var ctx = canvas.getContext('2d');
-  drawBarChart(ctx, canvas.width, 220, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [3200,4500,2800,6700,5100,8900,7200]);
+  drawBarChart(ctx, canvas.width, 220, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [12, 19, 8, 25, 14, 22, 5]);
 }
 
 function drawBarChart(ctx, w, h, labels, values) {
@@ -222,7 +241,7 @@ function drawBarChart(ctx, w, h, labels, values) {
     ctx.fillStyle = 'rgba(107,101,96,0.65)';
     ctx.font = '10px Jost,sans-serif'; ctx.textAlign = 'right';
     var val = (i/4)*max;
-    ctx.fillText(val >= 1000 ? '₱'+(val/1000).toFixed(1)+'k' : '₱'+val.toFixed(0), pad.left-5, y+4);
+    ctx.fillText(val >= 1000 ? (val/1000).toFixed(1)+'k' : val.toFixed(0), pad.left-5, y+4);
   }
   labels.forEach(function(label, i) {
     var x = pad.left + i*gap + (gap-barW)/2;
@@ -237,6 +256,128 @@ function drawBarChart(ctx, w, h, labels, values) {
     ctx.fillStyle = 'rgba(44,36,22,0.65)'; ctx.font = '10px Jost,sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(label, x+barW/2, h-pad.bottom/2+6);
   });
+}
+
+function drawCurvedLineChart(ctx, w, h, labels, values) {
+  ctx.clearRect(0, 0, w, h);
+  if (!values.length) return;
+  var max = Math.max.apply(null, values.concat([1])) * 1.15;
+  var pad = { top:20, right:16, bottom:36, left:58 };
+  var chartW = w - pad.left - pad.right;
+  var chartH = h - pad.top - pad.bottom;
+  var gap = chartW / (labels.length - 1 || 1);
+  
+  ctx.strokeStyle = 'rgba(201,151,28,0.1)'; ctx.lineWidth = 1;
+  for (var i = 0; i <= 4; i++) {
+    var y = pad.top + chartH - (i/4)*chartH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w-pad.right, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(107,101,96,0.65)';
+    ctx.font = '10px Jost,sans-serif'; ctx.textAlign = 'right';
+    var val = (i/4)*max;
+    ctx.fillText(val >= 1000 ? '₱'+(val/1000).toFixed(1)+'k' : '₱'+val.toFixed(0), pad.left-5, y+4);
+  }
+  
+  var pts = [];
+  labels.forEach(function(label, i) {
+    var x = pad.left + (labels.length === 1 ? chartW/2 : i*gap);
+    var y = pad.top + chartH - ((values[i]/max)*chartH);
+    pts.push({x:x, y:y});
+  });
+  
+  if(pts.length > 0) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (var i = 0; i < pts.length - 1; i++) {
+      var xc = (pts[i].x + pts[i + 1].x) / 2;
+      ctx.bezierCurveTo(xc, pts[i].y, xc, pts[i+1].y, pts[i+1].x, pts[i+1].y);
+    }
+    ctx.lineTo(pts[pts.length-1].x, pad.top + chartH);
+    ctx.lineTo(pts[0].x, pad.top + chartH);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0,pad.top,0,pad.top+chartH);
+    grad.addColorStop(0, 'rgba(201,151,28,0.4)');
+    grad.addColorStop(1, 'rgba(201,151,28,0.0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (var i = 0; i < pts.length - 1; i++) {
+      var xc = (pts[i].x + pts[i + 1].x) / 2;
+      ctx.bezierCurveTo(xc, pts[i].y, xc, pts[i+1].y, pts[i+1].x, pts[i+1].y);
+    }
+    ctx.strokeStyle = '#c9971c';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    
+    pts.forEach(function(p, i) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, Math.PI*2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#c9971c';
+      ctx.stroke();
+    });
+  }
+
+  ctx.fillStyle = 'rgba(107,101,96,0.8)';
+  ctx.textAlign = 'center';
+  labels.forEach(function(label, i) {
+    var x = pad.left + (labels.length === 1 ? chartW/2 : i*gap);
+    ctx.fillText(label, x, h - pad.bottom/2 + 6);
+  });
+  
+  // Attach hover logic
+  ctx.canvas._chartData = pts.map(function(p, i) { return { x: p.x, y: p.y, label: labels[i], value: values[i] }; });
+  if (!ctx.canvas._hasHover) {
+    ctx.canvas._hasHover = true;
+    ctx.canvas.addEventListener('mousemove', function(e) {
+      var rect = ctx.canvas.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      var hovered = null;
+      if (ctx.canvas._chartData) {
+        for (var i=0; i<ctx.canvas._chartData.length; i++) {
+          var pt = ctx.canvas._chartData[i];
+          if (Math.abs(mx - pt.x) < 20 && Math.abs(my - pt.y) < 20) {
+            hovered = pt;
+            break;
+          }
+        }
+      }
+      var tt = document.getElementById('chart-tooltip');
+      if (!tt) {
+        tt = document.createElement('div');
+        tt.id = 'chart-tooltip';
+        tt.style.position = 'absolute';
+        tt.style.background = 'rgba(0,0,0,0.85)';
+        tt.style.color = '#fff';
+        tt.style.padding = '6px 10px';
+        tt.style.borderRadius = '4px';
+        tt.style.fontSize = '12px';
+        tt.style.pointerEvents = 'none';
+        tt.style.zIndex = '1000';
+        tt.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+        tt.style.border = '1px solid rgba(255,255,255,0.1)';
+        document.body.appendChild(tt);
+      }
+      if (hovered) {
+        tt.style.display = 'block';
+        tt.innerHTML = hovered.label + '<br/><span style="color:var(--gold);font-weight:bold;font-size:14px">₱' + formatNumber(hovered.value) + '</span>';
+        tt.style.left = (e.pageX + 15) + 'px';
+        tt.style.top = (e.pageY + 15) + 'px';
+        ctx.canvas.style.cursor = 'pointer';
+      } else {
+        tt.style.display = 'none';
+        ctx.canvas.style.cursor = 'default';
+      }
+    });
+    ctx.canvas.addEventListener('mouseleave', function() {
+      var tt = document.getElementById('chart-tooltip');
+      if (tt) tt.style.display = 'none';
+    });
+  }
 }
 
 // ============================================================
@@ -289,7 +430,7 @@ function renderInventoryTable(products) {
       + '<td>₱' + formatNumber(p.cost_price) + '</td>'
       + '<td>' + (p.selling_price > 0 ? '₱' + formatNumber(p.selling_price) : '<span class="td-muted">—</span>') + '</td>'
       + '<td><span class="badge ' + bdg + '">' + lbl + '</span></td>'
-      + '<td><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-outline btn-sm" onclick="openStockModal(\'' + p.id + '\',\'' + esc(p.name) + '\')">± Stock</button><button class="btn btn-outline btn-sm" onclick="editProduct(\'' + p.id + '\')">Edit</button><button class="btn btn-danger btn-sm" onclick="deleteProduct(\'' + p.id + '\')">Delete</button></div></td></tr>';
+      + '<td><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-outline btn-sm" onclick="openStockModal(\'' + p.id + '\',\'' + esc(p.name) + '\',\'in\')" style="color:var(--green);border-color:rgba(76,175,80,0.3)">+ In</button><button class="btn btn-outline btn-sm" onclick="openStockModal(\'' + p.id + '\',\'' + esc(p.name) + '\',\'out\')" style="color:var(--red);border-color:rgba(211,47,47,0.3)">- Out</button><button class="btn btn-outline btn-sm" onclick="editProduct(\'' + p.id + '\')">Edit</button><button class="btn btn-danger btn-sm" onclick="deleteProduct(\'' + p.id + '\')">Delete</button></div></td></tr>';
   }).join('');
 }
 
@@ -310,6 +451,7 @@ function openAddProductModal() {
   editingProductId = null;
   setText('product-modal-title', 'Add New Product');
   document.getElementById('product-form').reset();
+  populateSupplierDropdown('');
   openModal('product-modal');
 }
 
@@ -320,12 +462,22 @@ function editProduct(id) {
   setText('product-modal-title', 'Edit Product');
   setVal('pf-name', p.name); setVal('pf-category', p.category); setVal('pf-sku', p.sku||'');
   setVal('pf-unit', p.unit||'pcs'); setVal('pf-quantity', p.quantity); setVal('pf-min-stock', p.min_stock);
-  setVal('pf-cost', p.cost_price); setVal('pf-price', p.selling_price); setVal('pf-supplier', p.supplier||''); setVal('pf-description', p.description||'');
+  setVal('pf-cost', p.cost_price); setVal('pf-price', p.selling_price); setVal('pf-description', p.description||'');
+  populateSupplierDropdown(p.supplier || '');
   openModal('product-modal');
 }
 
+function populateSupplierDropdown(selectedSupplier) {
+  var sel = document.getElementById('pf-supplier');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">None / Unassigned</option>' + 
+    allSuppliers.map(function(s) { 
+      return '<option value="' + esc(s.name) + '"' + (s.name===selectedSupplier ? ' selected' : '') + '>' + s.name + '</option>'; 
+    }).join('');
+}
+
 async function saveProduct() {
-  var data = { name:getVal('pf-name').trim(), category:getVal('pf-category'), sku:getVal('pf-sku').trim()||null, unit:getVal('pf-unit'), quantity:parseInt(getVal('pf-quantity'))||0, min_stock:parseInt(getVal('pf-min-stock'))||5, cost_price:parseFloat(getVal('pf-cost'))||0, selling_price:parseFloat(getVal('pf-price'))||0, supplier:getVal('pf-supplier').trim()||null, description:getVal('pf-description').trim()||null, updated_at:new Date().toISOString() };
+  var data = { name:getVal('pf-name').trim(), category:getVal('pf-category'), sku:getVal('pf-sku').trim()||null, unit:getVal('pf-unit'), quantity:parseInt(getVal('pf-quantity'))||0, min_stock:parseInt(getVal('pf-min-stock'))||5, cost_price:parseFloat(getVal('pf-cost'))||0, selling_price:parseFloat(getVal('pf-price'))||0, supplier:getVal('pf-supplier')||null, description:getVal('pf-description').trim()||null, updated_at:new Date().toISOString() };
   if (!data.name || !data.category) { showToast('Name and category are required', 'error'); return; }
   if (!_isConnected) {
     if (editingProductId) { var i=allProducts.findIndex(function(p){return p.id===editingProductId;}); if(i>-1) allProducts[i]={...allProducts[i],...data}; }
@@ -349,11 +501,26 @@ async function deleteProduct(id) {
 
 // ---- STOCK ADJUSTMENT ----
 var adjustingProductId = null;
-function openStockModal(productId, productName) {
+function openStockModal(productId, productName, defaultType) {
   adjustingProductId = productId;
   setText('stock-product-name', productName);
-  setVal('stock-qty', 1); setVal('stock-type', 'in'); setVal('stock-notes', '');
+  setVal('stock-qty', 1); setVal('stock-type', defaultType || 'out'); setVal('stock-notes', '');
+  updateStockPreview();
   openModal('stock-modal');
+}
+
+function updateStockPreview() {
+  var product = allProducts.find(function(p){return p.id===adjustingProductId;});
+  if(!product) return;
+  var type = getVal('stock-type'), qty = parseInt(getVal('stock-qty'))||0;
+  var isOut = type === 'out';
+  var newQty = product.quantity + (isOut ? -qty : qty);
+  var html = 'Current Stock: <strong>' + product.quantity + '</strong>';
+  if (qty > 0) {
+    html += ' &nbsp;→&nbsp; <span style="color:' + (newQty < product.min_stock ? 'var(--red)' : 'var(--green)') + '">New Stock: <strong>' + newQty + '</strong></span>';
+  }
+  var el = document.getElementById('stock-current-info');
+  if(el) el.innerHTML = html;
 }
 async function saveStockAdjustment() {
   var type = getVal('stock-type'), qty = parseInt(getVal('stock-qty'))||0, notes = getVal('stock-notes').trim();
@@ -372,278 +539,152 @@ async function saveStockAdjustment() {
 }
 
 // ============================================================
-// SERVICES
-// ============================================================
-var allServices = [];
-var editingServiceId = null;
-var DEFAULT_SERVICES = [
-  {id:'s01',name:'Basic Facial',category:'Facial',price:400,duration_minutes:60,is_active:true},
-  {id:'s02',name:'Diamond Peel',category:'Facial',price:500,duration_minutes:60,is_active:true},
-  {id:'s03',name:'Glycopeel Facial',category:'Facial',price:800,duration_minutes:75,is_active:true},
-  {id:'s04',name:'Hydra Glow Facial',category:'Facial',price:1000,duration_minutes:75,is_active:true},
-  {id:'s05',name:'Black Crystal Carbon Peel',category:'Facial',price:1000,duration_minutes:75,is_active:true},
-  {id:'s06',name:'Anti Aging Facial',category:'Facial',price:1000,duration_minutes:90,is_active:true},
-  {id:'s07',name:'Korean BB Glow',category:'Facial',price:1000,duration_minutes:90,is_active:true},
-  {id:'s08',name:'Korean BB Slim',category:'Facial',price:1500,duration_minutes:90,is_active:true},
-  {id:'s09',name:'Korean Black Pearl',category:'Facial',price:1800,duration_minutes:90,is_active:true},
-  {id:'s10',name:'RF Face Tightening',category:'Face Tightening',price:500,duration_minutes:45,is_active:true},
-  {id:'s11',name:'RF Eye Bag Removal',category:'Face Tightening',price:300,duration_minutes:30,is_active:true},
-  {id:'s12',name:'Underarm Waxing',category:'Waxing',price:250,duration_minutes:20,is_active:true},
-  {id:'s13',name:'Half Leg Waxing',category:'Waxing',price:350,duration_minutes:30,is_active:true},
-  {id:'s14',name:'Full Leg Waxing',category:'Waxing',price:600,duration_minutes:45,is_active:true},
-  {id:'s15',name:'Bikini Waxing',category:'Waxing',price:400,duration_minutes:30,is_active:true},
-  {id:'s16',name:'Brazilian Waxing',category:'Waxing',price:800,duration_minutes:45,is_active:true},
-  {id:'s17',name:'Eyebrow Threading',category:'Threading',price:150,duration_minutes:15,is_active:true},
-  {id:'s18',name:'Upper Lips Threading',category:'Threading',price:150,duration_minutes:10,is_active:true},
-  {id:'s19',name:'Lower Lips Threading',category:'Threading',price:150,duration_minutes:10,is_active:true},
-  {id:'s20',name:'Eyebrow Tinting',category:'Tinting',price:150,duration_minutes:20,is_active:true},
-  {id:'s21',name:'Eyelash Tinting',category:'Tinting',price:150,duration_minutes:20,is_active:true},
-  {id:'s22',name:'Meso Acne',category:'Meso Treatments',price:1500,duration_minutes:60,is_active:true},
-  {id:'s23',name:'Meso Scar',category:'Meso Treatments',price:1500,duration_minutes:60,is_active:true},
-  {id:'s24',name:'Meso White',category:'Meso Treatments',price:1500,duration_minutes:60,is_active:true},
-  {id:'s25',name:'Exilis Whole Face',category:'Exilis Treatments',price:2000,duration_minutes:90,is_active:true},
-  {id:'s26',name:'Exilis Eye Bag',category:'Exilis Treatments',price:500,duration_minutes:30,is_active:true},
-  {id:'s27',name:'Exilis Cheeks',category:'Exilis Treatments',price:800,duration_minutes:45,is_active:true},
-  {id:'s28',name:'Exilis Double Chin',category:'Exilis Treatments',price:1000,duration_minutes:45,is_active:true},
-  {id:'s29',name:'Exilis Arms',category:'Exilis Treatments',price:1500,duration_minutes:60,is_active:true},
-  {id:'s30',name:'Exilis Legs',category:'Exilis Treatments',price:1500,duration_minutes:60,is_active:true},
-  {id:'s31',name:'Exilis Tummy',category:'Exilis Treatments',price:2000,duration_minutes:90,is_active:true},
-];
-
-async function loadServices() {
-  document.getElementById('services-tbody').innerHTML = loadingRow(6);
-  var res = await dbQuery(function(db){return db.from('services').select('*').order('category').order('name');});
-  if (res.error || !res.data) {
-    allServices = DEFAULT_SERVICES;
-  } else if (res.data.length === 0) {
-    allServices = DEFAULT_SERVICES;
-    await seedServices();
-  } else {
-    allServices = res.data;
-  }
-  renderServicesTable(allServices);
-}
-
-async function seedServices() {
-  if (!_isConnected) return;
-  var rows = DEFAULT_SERVICES.map(function(s){return {name:s.name,category:s.category,price:s.price,duration_minutes:s.duration_minutes,is_active:true};});
-  var res = await dbQuery(function(db){return db.from('services').insert(rows);});
-  if (!res.error) showToast('All services seeded from your price list ✓','success');
-}
-
-function renderServicesTable(services) {
-  var tbody = document.getElementById('services-tbody');
-  if (!services.length) {
-    tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">✨</div><h3>No services yet</h3><p>Click <strong>+ Add Service</strong></p></div></td></tr>';
-    return;
-  }
-  tbody.innerHTML = services.map(function(s){
-    return '<tr><td><div style="font-weight:600;font-size:0.83rem">'+s.name+'</div></td><td><span class="badge badge-teal">'+s.category+'</span></td><td style="font-weight:600;color:var(--gold-dark)">₱'+formatNumber(s.price)+'</td><td class="td-muted">'+s.duration_minutes+' min</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><div style="display:flex;gap:6px"><button class="btn btn-outline btn-sm" onclick="editService(\''+s.id+'\')">Edit</button><button class="btn btn-ghost btn-sm" onclick="toggleService(\''+s.id+'\','+(!s.is_active)+')">'+(s.is_active?'Deactivate':'Activate')+'</button></div></td></tr>';
-  }).join('');
-}
-
-function filterServices(q) {
-  var lq=q.toLowerCase();
-  renderServicesTable(allServices.filter(function(s){return s.name.toLowerCase().includes(lq)||s.category.toLowerCase().includes(lq);}));
-}
-function openAddServiceModal() { editingServiceId=null; setText('service-modal-title','Add Service'); document.getElementById('service-form').reset(); openModal('service-modal'); }
-function editService(id) {
-  var s=allServices.find(function(x){return x.id===id;}); if(!s) return;
-  editingServiceId=id; setText('service-modal-title','Edit Service');
-  setVal('sf-name',s.name); setVal('sf-category',s.category); setVal('sf-price',s.price); setVal('sf-duration',s.duration_minutes); setVal('sf-description',s.description||'');
-  openModal('service-modal');
-}
-async function saveService() {
-  var data={name:getVal('sf-name').trim(),category:getVal('sf-category').trim(),price:parseFloat(getVal('sf-price'))||0,duration_minutes:parseInt(getVal('sf-duration'))||60,description:getVal('sf-description').trim()||null};
-  if (!data.name||!data.category||!data.price) { showToast('Name, category and price required','error'); return; }
-  if (!_isConnected) {
-    if (editingServiceId) { var i=allServices.findIndex(function(s){return s.id===editingServiceId;}); if(i>-1) allServices[i]={...allServices[i],...data}; }
-    else allServices.unshift({id:'s'+Date.now(),...data,is_active:true});
-    renderServicesTable(allServices); closeModal('service-modal'); showToast('Saved','success'); return;
-  }
-  var res=editingServiceId
-    ? await dbQuery(function(db){return db.from('services').update(data).eq('id',editingServiceId);})
-    : await dbQuery(function(db){return db.from('services').insert({...data,is_active:true});});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
-  closeModal('service-modal'); showToast('Service saved ✓','success'); loadServices();
-}
-async function toggleService(id, active) {
-  if (!_isConnected) { var s=allServices.find(function(x){return x.id===id;}); if(s){s.is_active=active;renderServicesTable(allServices);} return; }
-  await dbQuery(function(db){return db.from('services').update({is_active:active}).eq('id',id);}); loadServices();
-}
-
-// ============================================================
-// APPOINTMENTS
-// ============================================================
-var allAppointments=[], selectedDate=new Date(), editingApptId=null;
-
-async function loadAppointments() { renderDateStrip(); await fetchAppointmentsForDate(selectedDate); }
-function renderDateStrip() {
-  var strip=document.getElementById('date-strip'), days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], today=new Date(), html='';
-  for (var i=-2;i<=9;i++) { var d=new Date(today); d.setDate(today.getDate()+i); var active=d.toDateString()===selectedDate.toDateString(); html+='<div class="date-chip '+(active?'active':'')+'" onclick="selectDate('+d.getTime()+')"><span class="day">'+days[d.getDay()]+'</span><span class="num">'+d.getDate()+'</span></div>'; }
-  strip.innerHTML=html;
-}
-function selectDate(ts) { selectedDate=new Date(ts); renderDateStrip(); fetchAppointmentsForDate(selectedDate); }
-async function fetchAppointmentsForDate(date) {
-  var dateStr=date.toISOString().split('T')[0];
-  setText('appt-date-label', date.toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'}));
-  document.getElementById('appointments-list').innerHTML='<div class="loading-spinner"></div>';
-  var res=await dbQuery(function(db){return db.from('appointments').select('*').eq('appointment_date',dateStr).order('appointment_time');});
-  if (res.error && !_isConnected) { renderDemoAppointments(); return; }
-  allAppointments=res.data||[];
-  renderAppointments(allAppointments);
-}
-function renderDemoAppointments() {
-  allAppointments=[
-    {id:'a1',client_name:'Maria Santos',client_phone:'0917-123-4567',service_name:'Korean Black Pearl',appointment_time:'13:00',status:'confirmed',amount:1800},
-    {id:'a2',client_name:'Ana Reyes',client_phone:'0918-987-6543',service_name:'Brazilian Waxing',appointment_time:'14:30',status:'pending',amount:800},
-    {id:'a3',client_name:'Carla Dela Cruz',client_phone:'0919-555-1234',service_name:'Meso Acne',appointment_time:'16:00',status:'confirmed',amount:1500},
-    {id:'a4',client_name:'Lisa Flores',client_phone:'0920-111-2222',service_name:'Diamond Peel',appointment_time:'18:00',status:'completed',amount:500},
-  ];
-  renderAppointments(allAppointments);
-}
-function renderAppointments(appts) {
-  var list=document.getElementById('appointments-list');
-  if (!appts.length) { list.innerHTML='<div class="empty-state"><div class="empty-icon">📅</div><h3>No appointments</h3><p>No bookings for this day. Click <strong>+ New Appointment</strong>.</p></div>'; return; }
-  list.innerHTML=appts.map(function(a){
-    var badgeCls=a.status==='confirmed'?'badge-green':a.status==='completed'?'badge-gray':a.status==='cancelled'?'badge-red':'badge-orange';
-    var btns=(a.status!=='completed'&&a.status!=='cancelled')?'<button class="btn btn-outline btn-sm" onclick="updateApptStatus(\''+a.id+'\',\'confirmed\')">✓</button><button class="btn btn-danger btn-sm" onclick="updateApptStatus(\''+a.id+'\',\'cancelled\')">✕</button>':'';
-    return '<div class="appt-card '+a.status+'"><div class="appt-time">'+formatTime(a.appointment_time)+'</div><div class="appt-info"><div class="appt-client">'+a.client_name+'</div><div class="appt-service">'+(a.service_name||'No service')+' • '+(a.client_phone||'No phone')+'</div></div><span class="badge '+badgeCls+'">'+capitalize(a.status)+'</span><div class="appt-amount">₱'+formatNumber(a.amount||0)+'</div><div style="display:flex;gap:6px">'+btns+'<button class="btn btn-ghost btn-sm" onclick="editAppointment(\''+a.id+'\')">Edit</button></div></div>';
-  }).join('');
-}
-async function updateApptStatus(id, status) {
-  if (!_isConnected) { var a=allAppointments.find(function(x){return x.id===id;}); if(a){a.status=status;renderAppointments(allAppointments);} showToast('Updated','success'); return; }
-  var res=await dbQuery(function(db){return db.from('appointments').update({status}).eq('id',id);});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
-  showToast('Updated ✓','success'); fetchAppointmentsForDate(selectedDate);
-}
-function openAddAppointmentModal() {
-  editingApptId=null; setText('appt-modal-title','New Appointment'); document.getElementById('appt-form').reset();
-  setVal('af-date',selectedDate.toISOString().split('T')[0]); setVal('af-status','pending');
-  populateServiceSelect(); openModal('appt-modal');
-}
-function editAppointment(id) {
-  var a=allAppointments.find(function(x){return x.id===id;}); if(!a) return;
-  editingApptId=id; setText('appt-modal-title','Edit Appointment');
-  setVal('af-client',a.client_name); setVal('af-phone',a.client_phone||''); setVal('af-date',a.appointment_date||selectedDate.toISOString().split('T')[0]);
-  setVal('af-time',a.appointment_time); setVal('af-amount',a.amount||''); setVal('af-status',a.status); setVal('af-notes',a.notes||'');
-  populateServiceSelect(a.service_id); openModal('appt-modal');
-}
-function populateServiceSelect(selectedId) {
-  var sel=document.getElementById('af-service');
-  sel.innerHTML='<option value="">— Select service —</option>'+allServices.filter(function(s){return s.is_active;}).map(function(s){return '<option value="'+s.id+'" data-price="'+s.price+'"'+(s.id===selectedId?' selected':'')+'>'+s.name+' — ₱'+formatNumber(s.price)+'</option>';}).join('');
-  sel.onchange=function(){var opt=sel.options[sel.selectedIndex]; if(opt&&opt.dataset.price) setVal('af-amount',opt.dataset.price);};
-}
-async function saveAppointment() {
-  var sel=document.getElementById('af-service'), sOpt=sel.options[sel.selectedIndex];
-  var data={client_name:getVal('af-client').trim(),client_phone:getVal('af-phone').trim()||null,service_id:sel.value||null,service_name:(sel.value&&sOpt)?sOpt.text.split(' — ')[0].trim():null,appointment_date:getVal('af-date'),appointment_time:getVal('af-time'),amount:parseFloat(getVal('af-amount'))||0,status:getVal('af-status'),notes:getVal('af-notes').trim()||null};
-  if (!data.client_name||!data.appointment_date||!data.appointment_time) { showToast('Client name, date and time required','error'); return; }
-  if (!_isConnected) {
-    if (editingApptId) { var i=allAppointments.findIndex(function(a){return a.id===editingApptId;}); if(i>-1) allAppointments[i]={...allAppointments[i],...data}; }
-    else allAppointments.push({id:'a'+Date.now(),...data});
-    allAppointments.sort(function(a,b){return a.appointment_time.localeCompare(b.appointment_time);});
-    renderAppointments(allAppointments); closeModal('appt-modal'); showToast('Saved (demo)','success'); return;
-  }
-  var res=editingApptId?await dbQuery(function(db){return db.from('appointments').update(data).eq('id',editingApptId);}):await dbQuery(function(db){return db.from('appointments').insert(data);});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
-  closeModal('appt-modal'); showToast('Appointment saved ✓','success'); fetchAppointmentsForDate(selectedDate);
-}
-
-// ============================================================
-// SALES / POS
-// ============================================================
-var posCart=[], allSales=[];
-async function loadSales() {
-  if (!allServices.length) await loadServices();
-  populatePOSServiceList(''); renderCart(); loadSalesHistory();
-}
-function populatePOSServiceList(category) {
-  var list=document.getElementById('pos-services');
-  var svcs=allServices.filter(function(s){return s.is_active&&(!category||s.category===category);});
-  if (!svcs.length) { list.innerHTML='<p class="td-muted" style="padding:20px;text-align:center">No services here</p>'; return; }
-  list.innerHTML=svcs.map(function(s){return '<div class="pos-service-item" onclick="addToCart(\''+s.id+'\',\''+esc(s.name)+'\','+s.price+')"><div style="font-weight:600;font-size:0.82rem">'+s.name+'</div><div style="color:var(--gold-dark);font-weight:700;margin-top:3px">₱'+formatNumber(s.price)+'</div><div style="font-size:0.68rem;color:var(--gray);margin-top:2px">'+s.category+'</div></div>';}).join('');
-}
-function filterPOS(btn, category) { document.querySelectorAll('.pos-cat-btn').forEach(function(b){b.classList.remove('active');}); btn.classList.add('active'); populatePOSServiceList(category); }
-function addToCart(id,name,price) { var e=posCart.find(function(c){return c.id===id;}); e?e.qty++:posCart.push({id,name,price,qty:1}); renderCart(); }
-function removeFromCart(idx) { posCart.splice(idx,1); renderCart(); }
-function clearCart() { posCart=[]; setVal('pos-client',''); setVal('pos-discount',''); renderCart(); }
-function renderCart() {
-  var cartList=document.getElementById('cart-list');
-  var subtotal=posCart.reduce(function(s,i){return s+i.price*i.qty;},0);
-  var discount=parseFloat(getVal('pos-discount'))||0, total=Math.max(0,subtotal-discount);
-  if (!posCart.length) { cartList.innerHTML='<div class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:2rem">🛒</div><p style="font-size:0.78rem">Tap a service to add</p></div>'; }
-  else { cartList.innerHTML=posCart.map(function(item,idx){return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(201,151,28,0.08)"><div style="flex:1"><div style="font-size:0.82rem;font-weight:500">'+item.name+'</div><div style="font-size:0.7rem;color:var(--gray)">₱'+formatNumber(item.price)+' × '+item.qty+'</div></div><div style="font-weight:600;color:var(--dark);font-size:0.82rem;white-space:nowrap">₱'+formatNumber(item.price*item.qty)+'</div><button onclick="removeFromCart('+idx+')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:1.1rem;line-height:1;padding:2px 4px">×</button></div>';}).join(''); }
-  setText('cart-subtotal','₱'+formatNumber(subtotal)); setText('cart-discount','₱'+formatNumber(discount)); setText('cart-total','₱'+formatNumber(total));
-}
-async function processSale() {
-  var clientName=getVal('pos-client').trim()||'Walk-in Client', discount=parseFloat(getVal('pos-discount'))||0, payMethod=getVal('pos-payment');
-  if (!posCart.length) { showToast('Add services first','error'); return; }
-  var subtotal=posCart.reduce(function(s,i){return s+i.price*i.qty;},0), total=Math.max(0,subtotal-discount);
-  var saleData={client_name:clientName,items:posCart,subtotal,discount,total,payment_method:payMethod,status:'completed'};
-  if (!_isConnected) { allSales.unshift({id:'sale'+Date.now(),...saleData,created_at:new Date().toISOString()}); showToast('₱'+formatNumber(total)+' sale for '+clientName+' ✓','success'); clearCart(); return; }
-  var res=await dbQuery(function(db){return db.from('sales').insert(saleData);});
-  if (res.error) { showToast('Error: '+res.error.message,'error'); return; }
-  showToast('₱'+formatNumber(total)+' processed ✓','success'); clearCart(); loadSalesHistory();
-}
-async function loadSalesHistory() {
-  document.getElementById('sales-tbody').innerHTML=loadingRow(6);
-  var res=await dbQuery(function(db){return db.from('sales').select('*').order('created_at',{ascending:false}).limit(50);});
-  var sales=(res.data&&!res.error)?res.data:allSales.length?allSales:getDemoSales();
-  renderSalesTable(sales);
-}
-function getDemoSales() {
-  return [
-    {id:'ds1',client_name:'Maria Santos',items:[{name:'Korean Black Pearl',qty:1,price:1800}],total:1800,discount:0,payment_method:'gcash',created_at:new Date().toISOString()},
-    {id:'ds2',client_name:'Ana Reyes',items:[{name:'Brazilian Waxing',qty:1,price:800}],total:750,discount:50,payment_method:'cash',created_at:new Date(Date.now()-86400000).toISOString()},
-    {id:'ds3',client_name:'Carla Dela Cruz',items:[{name:'Meso Acne',qty:1,price:1500},{name:'Diamond Peel',qty:1,price:500}],total:2000,discount:0,payment_method:'card',created_at:new Date(Date.now()-172800000).toISOString()},
-  ];
-}
-function renderSalesTable(sales) {
-  var tbody=document.getElementById('sales-tbody');
-  if (!sales.length) { tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">💰</div><h3>No sales yet</h3><p>Process a sale from the <strong>New Sale</strong> tab</p></div></td></tr>'; return; }
-  tbody.innerHTML=sales.map(function(s){var items=Array.isArray(s.items)?s.items.map(function(i){return i.name;}).join(', '):'—'; return '<tr><td class="td-muted">'+formatDate(s.created_at)+'</td><td style="font-weight:500">'+s.client_name+'</td><td class="td-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+items+'">'+items+'</td><td style="font-weight:700;color:var(--gold-dark)">₱'+formatNumber(s.total)+'</td><td><span class="badge badge-teal">'+capitalize(s.payment_method||'cash')+'</span></td><td><span class="badge badge-green">Completed</span></td></tr>';}).join('');
-}
-
-// ============================================================
 // REPORTS
 // ============================================================
 async function loadReports() {
   if (!_isConnected) { renderDemoReports(); return; }
   var startOfMonth=new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0,0,0,0);
-  var dateStr=startOfMonth.toISOString().split('T')[0];
-  var [sRes,aRes,pRes]=await Promise.all([
-    dbQuery(function(db){return db.from('sales').select('total,created_at').gte('created_at',startOfMonth.toISOString());}),
-    dbQuery(function(db){return db.from('appointments').select('status,service_name,amount').gte('appointment_date',dateStr);}),
+  
+  var [pRes,txnRes,allProdRes]=await Promise.all([
     dbQuery(function(db){return db.from('products').select('id',{count:'exact',head:true}).eq('is_active',true);}),
+    dbQuery(function(db){return db.from('stock_transactions').select('*, products(name, cost_price, selling_price, supplier)');}),
+    dbQuery(function(db){return db.from('products').select('*').eq('is_active',true);})
   ]);
-  var sales=sRes.data||[], appts=aRes.data||[];
-  var monthRev=sales.reduce(function(s,r){return s+(parseFloat(r.total)||0);},0);
-  var completed=appts.filter(function(a){return a.status==='completed';}).length;
-  setText('rpt-revenue','₱'+formatNumber(monthRev)); setText('rpt-completed',completed); setText('rpt-total-appts',appts.length); setText('rpt-products',pRes.count||0);
-  renderRevenueBarChart(sales); renderTopServices(appts);
+  var txns=txnRes.data||[], products=allProdRes.data||[];
+  
+  setText('rpt-products',pRes.count||0);
+  setText('rpt-out', products.filter(function(p){return p.quantity <= 0;}).length);
+  setText('rpt-low', products.filter(function(p){return p.quantity > 0 && p.quantity < p.min_stock;}).length);
+  setText('rpt-well', products.filter(function(p){return p.quantity >= p.min_stock;}).length);
+  
+  renderStockChart(txns); 
+  
+  var outs = txns.filter(function(t){return t.type==='out';});
+  var totalOutQty = outs.reduce(function(s,t){return s+(t.quantity||0);},0);
+  
+  // Forecast: Expected stock usage next month based on average
+  var projectedUsage = Math.round((totalOutQty / (outs.length || 1)) * 30);
+  setText('rpt-forecast', projectedUsage + ' items');
+  setText('rpt-forecast-trend', 'Projected stock out next month');
+  
+  // Turnover Velocity
+  var avgInvCost = products.reduce(function(s,p){return s+((p.quantity||0)*(p.cost_price||0));},0);
+  var cogs = outs.reduce(function(s,t){ var p=t.products; return s+((t.quantity||0)*(p?p.cost_price||0:0)); },0);
+  var velocity = avgInvCost > 0 ? (cogs / avgInvCost).toFixed(2) : '0.00';
+  setText('rpt-turnover', velocity + 'x');
+  
+  var totalRev = outs.reduce(function(s,t){ var p=t.products; return s+((t.quantity||0)*(p?p.selling_price||0:0)); },0);
+  setText('rpt-revenue-total', formatNumber(totalRev));
+  
+  renderTopInventory(products);
+  
+  var supplierRevenue = {};
+  outs.forEach(function(t) {
+    var supp = t.products && t.products.supplier ? t.products.supplier : 'Unknown/Unassigned';
+    var rev = (t.quantity || 0) * (t.products && t.products.selling_price ? t.products.selling_price : 0);
+    supplierRevenue[supp] = (supplierRevenue[supp] || 0) + rev;
+  });
+  var topSuppliers = Object.keys(supplierRevenue).map(function(s) {
+    return { name: s, revenue: supplierRevenue[s] };
+  }).filter(function(s) { return s.revenue > 0; }).sort(function(a, b) { return b.revenue - a.revenue; }).slice(0, 3);
+  
+  var suppEl = document.getElementById('top-suppliers-list');
+  if(suppEl) {
+    suppEl.innerHTML = topSuppliers.length ? topSuppliers.map(function(s, i) {
+      return '<div class="report-metric"><span class="report-metric-label"><span style="color:var(--gold);margin-right:8px">#'+(i+1)+'</span>'+s.name+'</span><span class="badge badge-green">₱'+formatNumber(s.revenue)+'</span></div>';
+    }).join('') : '<div class="td-muted" style="padding:20px;text-align:center">No supplier sales data</div>';
+  }
 }
+
+function renderTopInventory(products) {
+  var sorted = [...products].sort(function(a,b){return ((b.quantity||0)*(b.cost_price||0)) - ((a.quantity||0)*(a.cost_price||0));}).slice(0,5);
+  var el = document.getElementById('top-inventory-list');
+  if(!el) return;
+  el.innerHTML = sorted.length ? sorted.map(function(p){return '<div class="report-metric"><span class="report-metric-label">'+p.name+'</span><span class="badge badge-gold">₱'+formatNumber((p.quantity||0)*(p.cost_price||0))+'</span></div>';}).join('') : '<div class="td-muted" style="padding:20px;text-align:center">No inventory value</div>';
+}
+
 function renderDemoReports() {
-  setText('rpt-revenue','₱52,500'); setText('rpt-completed',38); setText('rpt-total-appts',45); setText('rpt-products',47);
+  setText('rpt-products',47);
+  setText('rpt-well', 35); setText('rpt-low', 9); setText('rpt-out', 3);
+  setText('rpt-revenue-total', '124,500');
+  setText('rpt-forecast', '125 items'); setText('rpt-forecast-trend', 'Projected stock out next month');
+  setText('rpt-turnover', '2.8x');
   var canvas=document.getElementById('rpt-revenue-chart'); if(!canvas) return;
   canvas.width=canvas.offsetWidth||400;
-  drawBarChart(canvas.getContext('2d'),canvas.width,200,['1','2','3','4','5','6','7','8','9','10'],[4200,6100,3800,7500,5400,9200,4700,6800,8100,7400]);
-  renderTopServices([]);
+  drawBarChart(canvas.getContext('2d'),canvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[12,19,8,25,14,22,5]);
+  
+  var curveCanvas=document.getElementById('rpt-revenue-curve-chart');
+  if(curveCanvas) {
+    curveCanvas.width=curveCanvas.offsetWidth||400;
+    drawCurvedLineChart(curveCanvas.getContext('2d'),curveCanvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[1500,2800,1200,3500,2100,4200,800]);
+  }
+  
+  var el = document.getElementById('top-inventory-list');
+  if(el) el.innerHTML = '<div class="report-metric"><span class="report-metric-label">Premium Facial Cleanser</span><span class="badge badge-gold">₱15,000</span></div><div class="report-metric"><span class="report-metric-label">Massage Oil Gallon</span><span class="badge badge-gold">₱12,500</span></div><div class="report-metric"><span class="report-metric-label">Cotton Pads Bulk</span><span class="badge badge-teal">₱8,000</span></div>';
+  
+  var suppEl = document.getElementById('top-suppliers-list');
+  if(suppEl) suppEl.innerHTML = '<div class="report-metric"><span class="report-metric-label"><span style="color:var(--gold);margin-right:8px">#1</span>Beauty Supplies Co.</span><span class="badge badge-green">₱65,200</span></div><div class="report-metric"><span class="report-metric-label"><span style="color:var(--gold);margin-right:8px">#2</span>Glow Essentials</span><span class="badge badge-green">₱42,000</span></div><div class="report-metric"><span class="report-metric-label"><span style="color:var(--gold);margin-right:8px">#3</span>Nail World PH</span><span class="badge badge-green">₱17,300</span></div>';
 }
-function renderRevenueBarChart(sales) {
-  var canvas=document.getElementById('rpt-revenue-chart'); if(!canvas||!sales.length) { renderDemoReports(); return; }
+
+function renderStockChart(txns) {
+  var canvas=document.getElementById('rpt-revenue-chart'); if(!canvas) return;
+  var curveCanvas=document.getElementById('rpt-revenue-curve-chart');
   canvas.width=canvas.offsetWidth||400;
-  var groups={};
-  sales.forEach(function(s){var d=new Date(s.created_at).getDate().toString(); groups[d]=(groups[d]||0)+(parseFloat(s.total)||0);});
-  var days=Object.keys(groups).sort(function(a,b){return +a-+b;});
+  
+  if(!txns.length) { 
+    if(!_isConnected) { renderDemoReports(); return; }
+    drawBarChart(canvas.getContext('2d'),canvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[0,0,0,0,0,0,0]);
+    if(curveCanvas) {
+      curveCanvas.width=curveCanvas.offsetWidth||400;
+      drawCurvedLineChart(curveCanvas.getContext('2d'),curveCanvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[0,0,0,0,0,0,0]);
+    }
+    return;
+  }
+  
+  var groups={}, revGroups={};
+  var outs = txns.filter(function(t){return t.type==='out';});
+  outs.forEach(function(t){
+    var d=new Date(t.created_at).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}); 
+    groups[d]=(groups[d]||0)+(t.quantity||0);
+    revGroups[d]=(revGroups[d]||0)+((t.quantity||0)*(t.products?t.products.selling_price||0:0));
+  });
+  var days=Object.keys(groups);
+  
+  if(days.length === 0) {
+    drawBarChart(canvas.getContext('2d'),canvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[0,0,0,0,0,0,0]);
+    if(curveCanvas) {
+      curveCanvas.width=curveCanvas.offsetWidth||400;
+      drawCurvedLineChart(curveCanvas.getContext('2d'),curveCanvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[0,0,0,0,0,0,0]);
+    }
+    return;
+  }
+  
+  if(days.length === 1) {
+    var previousDay = new Date(new Date().getTime() - 86400000).toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+    if(previousDay === days[0]) previousDay = "Prev Day";
+    days.unshift(previousDay);
+    groups[previousDay] = 0;
+    revGroups[previousDay] = 0;
+  }
+  
   drawBarChart(canvas.getContext('2d'),canvas.width,200,days,days.map(function(d){return groups[d];}));
+  if(curveCanvas) {
+    curveCanvas.width=curveCanvas.offsetWidth||400;
+    drawCurvedLineChart(curveCanvas.getContext('2d'),curveCanvas.width,200,days,days.map(function(d){return revGroups[d]||0;}));
+  }
 }
-function renderTopServices(appts) {
-  var counts={};
-  appts.forEach(function(a){if(a.service_name) counts[a.service_name]=(counts[a.service_name]||0)+1;});
-  var sorted=Object.entries(counts).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
-  var el=document.getElementById('top-services-list');
-  el.innerHTML=sorted.length?sorted.map(function(e){return '<div class="report-metric"><span class="report-metric-label">'+e[0]+'</span><span class="badge badge-teal">'+e[1]+' bookings</span></div>';}).join(''):
-    '<div class="report-metric"><span class="report-metric-label">Korean Black Pearl</span><span class="badge badge-gold">₱1,800</span></div><div class="report-metric"><span class="report-metric-label">Exilis Tummy</span><span class="badge badge-gold">₱2,000</span></div><div class="report-metric"><span class="report-metric-label">Meso Acne</span><span class="badge badge-teal">₱1,500</span></div><div class="report-metric"><span class="report-metric-label">Brazilian Waxing</span><span class="badge badge-teal">₱800</span></div><div class="report-metric"><span class="report-metric-label">Diamond Peel</span><span class="badge badge-green">₱500</span></div>';
+
+async function clearRevenue() {
+  if (!confirm("⚠️ WARNING: Are you sure you want to clear all revenue data?\nThis will permanently delete all stock movement history and reset your charts to zero. This cannot be undone.")) return;
+  if (!_isConnected) {
+    showToast("Cannot clear revenue in demo mode.", "error");
+    return;
+  }
+  var res = await dbQuery(function(db) { return db.from('stock_transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000'); });
+  if (res.error) { showToast("Error: " + res.error.message, "error"); return; }
+  showToast("Revenue and stock history cleared.", "success");
+  loadReports();
+  loadDashboardChart();
 }
 
 // ============================================================
@@ -666,24 +707,7 @@ function openAddSupplierModal(){editingSuppId=null;setText('supplier-modal-title
 function editSupplier(id){var s=allSuppliers.find(function(x){return x.id===id;});if(!s)return;editingSuppId=id;setText('supplier-modal-title','Edit Supplier');setVal('supf-name',s.name);setVal('supf-contact',s.contact_person||'');setVal('supf-phone',s.phone||'');setVal('supf-email',s.email||'');setVal('supf-address',s.address||'');openModal('supplier-modal');}
 async function saveSupplier(){var data={name:getVal('supf-name').trim(),contact_person:getVal('supf-contact').trim()||null,phone:getVal('supf-phone').trim()||null,email:getVal('supf-email').trim()||null,address:getVal('supf-address').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingSuppId){var i=allSuppliers.findIndex(function(s){return s.id===editingSuppId;});if(i>-1)allSuppliers[i]={...allSuppliers[i],...data};}else allSuppliers.push({id:'sup'+Date.now(),...data,is_active:true});renderSuppliersTable(allSuppliers);closeModal('supplier-modal');showToast('Saved','success');return;}var res=editingSuppId?await dbQuery(function(db){return db.from('suppliers').update(data).eq('id',editingSuppId);}):await dbQuery(function(db){return db.from('suppliers').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('supplier-modal');showToast('Saved ✓','success');loadSuppliers();}
 
-// ============================================================
-// STAFF
-// ============================================================
-var allStaff=[], editingStaffId=null;
-async function loadStaff(){document.getElementById('staff-tbody').innerHTML=loadingRow(6);var res=await dbQuery(function(db){return db.from('staff').select('*').order('name');});allStaff=(res.data&&!res.error)?res.data:getDemoStaff();renderStaffTable(allStaff);}
-function getDemoStaff(){return [{id:'st1',name:'Meera',role:'Owner / Aesthetician',phone:'09993962841',email:'meera@panemorfi.ph',is_active:true},{id:'st2',name:'Ana Cruz',role:'Nail Technician',phone:'0918-111-2222',email:'',is_active:true},{id:'st3',name:'Rica Santos',role:'Skin Therapist',phone:'0919-333-4444',email:'',is_active:true}];}
-function renderStaffTable(staff){var tbody=document.getElementById('staff-tbody');if(!staff.length){tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div><h3>No staff yet</h3></div></td></tr>';return;}tbody.innerHTML=staff.map(function(s){return '<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="user-avatar" style="width:32px;height:32px;font-size:0.75rem">'+s.name.charAt(0).toUpperCase()+'</div><span style="font-weight:600">'+s.name+'</span></div></td><td><span class="badge badge-gold">'+(s.role||'Staff')+'</span></td><td class="td-muted">'+(s.phone||'—')+'</td><td class="td-muted">'+(s.email||'—')+'</td><td><span class="badge '+(s.is_active?'badge-green':'badge-gray')+'">'+(s.is_active?'Active':'Inactive')+'</span></td><td><button class="btn btn-outline btn-sm" onclick="editStaff(\''+s.id+'\')">Edit</button></td></tr>';}).join('');}
-function openAddStaffModal(){editingStaffId=null;setText('staff-modal-title','Add Staff Member');document.getElementById('staff-form').reset();openModal('staff-modal');}
-function editStaff(id){var s=allStaff.find(function(x){return x.id===id;});if(!s)return;editingStaffId=id;setText('staff-modal-title','Edit Staff Member');setVal('stf-name',s.name);setVal('stf-role',s.role||'');setVal('stf-phone',s.phone||'');setVal('stf-email',s.email||'');openModal('staff-modal');}
-async function saveStaff(){var data={name:getVal('stf-name').trim(),role:getVal('stf-role').trim()||null,phone:getVal('stf-phone').trim()||null,email:getVal('stf-email').trim()||null};if(!data.name){showToast('Name required','error');return;}if(!_isConnected){if(editingStaffId){var i=allStaff.findIndex(function(s){return s.id===editingStaffId;});if(i>-1)allStaff[i]={...allStaff[i],...data};}else allStaff.push({id:'st'+Date.now(),...data,is_active:true});renderStaffTable(allStaff);closeModal('staff-modal');showToast('Saved','success');return;}var res=editingStaffId?await dbQuery(function(db){return db.from('staff').update(data).eq('id',editingStaffId);}):await dbQuery(function(db){return db.from('staff').insert({...data,is_active:true});});if(res.error){showToast('Error: '+res.error.message,'error');return;}closeModal('staff-modal');showToast('Saved ✓','success');loadStaff();}
 
-// ============================================================
-// SETTINGS
-// ============================================================
-function updateConnectionBadge(){var el=document.getElementById('connection-status');if(!el)return;el.innerHTML=_isConnected?'<span class="badge badge-green">✓ Connected to Supabase</span>':'<span class="badge badge-orange">Not Connected (Demo Mode)</span>';}
-function saveSupabaseConfig(){var url=getVal('cfg-url').trim(),key=getVal('cfg-key').trim();if(!url||!key){showToast('Enter both URL and key','error');return;}localStorage.setItem('mp_supabase_url',url);localStorage.setItem('mp_supabase_key',key);var client=initSupabase(url,key);updateConnectionBadge();updateSetupBanner();if(client){showToast('Connected ✓ — Reloading…','success');setTimeout(function(){navigateTo('dashboard');},800);}else{showToast('Could not connect. Check credentials.','error');}}
-async function testConnection(){if(!_isConnected){showToast('Not connected','warning');return;}var res=await dbQuery(function(db){return db.from('products').select('id').limit(1);});res.error?showToast('Test failed: '+res.error.message,'error'):showToast('Connection test passed ✓','success');}
-function copySQLSchema(){var ta=document.querySelector('textarea[readonly]');if(!ta)return;navigator.clipboard.writeText(ta.value).then(function(){showToast('SQL copied ✓','success');}).catch(function(){showToast('Copy failed — select manually','error');});}
 
 // ============================================================
 // MODALS & TABS
@@ -708,21 +732,117 @@ function setText(id,v){var el=document.getElementById(id);if(el)el.textContent=(
 function loadingRow(cols){return '<tr><td colspan="'+cols+'" style="text-align:center;padding:32px"><div class="loading-spinner"></div></td></tr>';}
 
 // ============================================================
+// AUTH & REALTIME
+// ============================================================
+function checkAuth() {
+  // Simple client-side mock auth check or use Supabase auth
+  var loggedIn = sessionStorage.getItem('mp_auth') === 'true';
+  var role = sessionStorage.getItem('mp_user_role') || 'admin';
+  
+  if (loggedIn) {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-wrapper').style.display = 'block';
+    
+    // RBAC
+    var repNav = document.querySelector('[data-page="reports"]');
+    var supNav = document.querySelector('[data-page="suppliers"]');
+    if (role === 'staff') {
+      if (repNav) repNav.style.display = 'none';
+      if (supNav) supNav.style.display = 'none';
+    } else {
+      if (repNav) repNav.style.display = 'flex';
+      if (supNav) supNav.style.display = 'flex';
+    }
+    
+    var nameEl = document.querySelector('.user-name');
+    var roleEl = document.querySelector('.user-role');
+    var avatarEl = document.querySelector('.user-avatar');
+    if (nameEl && roleEl && avatarEl) {
+      if (role === 'admin') { nameEl.textContent = "Meera's Admin"; roleEl.textContent = "Owner"; avatarEl.textContent = "A"; }
+      else if (role === 'manager') { nameEl.textContent = "Store Manager"; roleEl.textContent = "Manager"; avatarEl.textContent = "M"; }
+      else { nameEl.textContent = "Staff Member"; roleEl.textContent = "Staff"; avatarEl.textContent = "S"; }
+    }
+
+    setupRealtime();
+  } else {
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('app-wrapper').style.display = 'none';
+  }
+}
+function handleLogin() {
+  var email = getVal('login-email');
+  var pass = getVal('login-pass');
+  
+  var users = {
+    'admin@meeras.com': { pass: 'admin041908', role: 'admin' },
+    'manager@meeras.com': { pass: 'manager041908', role: 'manager' },
+    'staff@meeras.com': { pass: 'staff041908', role: 'staff' }
+  };
+
+  if (!email || !pass) {
+    showToast('Please enter credentials', 'error');
+    return;
+  }
+  
+  var user = users[email];
+  if (user && user.pass === pass) {
+    sessionStorage.setItem('mp_auth', 'true');
+    sessionStorage.setItem('mp_user_email', email);
+    sessionStorage.setItem('mp_user_role', user.role);
+    
+    setVal('login-email', '');
+    setVal('login-pass', '');
+    
+    checkAuth();
+    
+    // If staff logged in and somehow on a blocked page, redirect to dashboard
+    var currentPage = document.querySelector('.page-content:not(.hidden)');
+    if (user.role === 'staff' && currentPage && (currentPage.id === 'page-reports' || currentPage.id === 'page-suppliers')) {
+      navigateTo('dashboard');
+    }
+    
+    showToast('Logged in successfully', 'success');
+  } else {
+    showToast('Invalid email or password', 'error');
+  }
+}
+function handleLogout() {
+  sessionStorage.removeItem('mp_auth');
+  checkAuth();
+  showToast('Logged out', 'info');
+}
+
+function setupRealtime() {
+  if (!_isConnected || !_db) return;
+  try {
+    _db.channel('public-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, payload => {
+        console.log('Realtime product update:', payload);
+        showToast('Real-time: Inventory updated by another user', 'info', 2000);
+        if (!document.getElementById('page-inventory').classList.contains('hidden')) loadInventory();
+        loadDashboard();
+      })
+      
+      .subscribe();
+  } catch(e) { console.error('Realtime setup error:', e); }
+}
+
+// ============================================================
 // INIT
 // ============================================================
 document.addEventListener('DOMContentLoaded', function() {
-  var savedUrl=localStorage.getItem('mp_supabase_url');
-  var savedKey=localStorage.getItem('mp_supabase_key');
-  if (savedUrl && savedKey) {
-    setVal('cfg-url', savedUrl);
-    setVal('cfg-key', savedKey);
-    initSupabase(savedUrl, savedKey);
-  }
-  updateConnectionBadge();
-  updateSetupBanner();
+  var hardcodedUrl = 'https://uacomiyljswtsjzznlxp.supabase.co';
+  var hardcodedKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhY29taXlsanN3dHNqenpubHhwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MTA0NjQsImV4cCI6MjA4ODk4NjQ2NH0.ylcfPFEncznnbtqmNWxO_PJGcvsN2APNuimyXS6jy5s';
+  
+  localStorage.setItem('mp_supabase_url', hardcodedUrl);
+  localStorage.setItem('mp_supabase_key', hardcodedKey);
+  
+  initSupabase(hardcodedUrl, hardcodedKey);
+  
   document.querySelectorAll('.nav-item[data-page]').forEach(function(item){
     item.addEventListener('click', function(){ navigateTo(item.dataset.page); });
   });
+  checkAuth();
   navigateTo('dashboard');
-  renderCart();
+  
 });
