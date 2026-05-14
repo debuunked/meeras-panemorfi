@@ -125,24 +125,53 @@ async function loadDashboardChart() {
   if(res.error) { renderDemoChart(); return; }
   var txns = res.data || [];
   
-  var canvas=document.getElementById('revenue-chart'); if(!canvas) return;
-  canvas.width=canvas.offsetWidth||560;
-  var ctx=canvas.getContext('2d');
+  var dailyCanvas=document.getElementById('daily-revenue-chart');
+  var weeklyCanvas=document.getElementById('weekly-revenue-chart');
+  if(!dailyCanvas || !weeklyCanvas) return;
   
-  if(txns.length === 0) {
-    drawBarChart(ctx, canvas.width, 220, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [0,0,0,0,0,0,0]);
-    return;
-  }
+  dailyCanvas.width=dailyCanvas.offsetWidth||300;
+  weeklyCanvas.width=weeklyCanvas.offsetWidth||300;
   
-  var groups={};
+  var dCtx=dailyCanvas.getContext('2d');
+  var wCtx=weeklyCanvas.getContext('2d');
+  
   var outs = txns.filter(function(t){return t.type==='out';});
-  outs.forEach(function(t){var d=new Date(t.created_at).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}); groups[d]=(groups[d]||0)+(t.quantity||0);});
-  var days=Object.keys(groups);
-  if(days.length === 0) {
-    drawBarChart(ctx, canvas.width, 220, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [0,0,0,0,0,0,0]);
-    return;
-  }
-  drawBarChart(ctx, canvas.width, 220, days, days.map(function(d){return groups[d];}));
+  
+  // Daily Logic (Fixed Sun-Sat)
+  var fixedDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var dGroups = { 'Sun':0, 'Mon':0, 'Tue':0, 'Wed':0, 'Thu':0, 'Fri':0, 'Sat':0 };
+  var now = new Date();
+  var sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+  
+  outs.forEach(function(t){
+    var dt = new Date(t.created_at);
+    if (dt >= sevenDaysAgo) {
+      var dayStr = dt.toLocaleDateString('en-US', {weekday: 'short'});
+      if (dGroups[dayStr] !== undefined) {
+        dGroups[dayStr] += (t.quantity || 0);
+      }
+    }
+  });
+  
+  drawBarChart(dCtx, dailyCanvas.width, 200, fixedDays, fixedDays.map(function(d){return dGroups[d];}));
+
+  // Weekly Logic (Fixed Week 1-4)
+  var fixedWeeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+  var wGroups = { 'Week 1':0, 'Week 2':0, 'Week 3':0, 'Week 4':0 };
+  var currentMonth = now.getMonth();
+  var currentYear = now.getFullYear();
+
+  outs.forEach(function(t){
+    var dt = new Date(t.created_at);
+    if (dt.getMonth() === currentMonth && dt.getFullYear() === currentYear) {
+      var weekNum = Math.ceil(dt.getDate() / 7);
+      if (weekNum > 4) weekNum = 4; // group days 29-31 into week 4
+      var wStr = "Week " + weekNum;
+      wGroups[wStr] = (wGroups[wStr] || 0) + (t.quantity || 0);
+    }
+  });
+
+  drawBarChart(wCtx, weeklyCanvas.width, 200, fixedWeeks, fixedWeeks.map(function(w){return wGroups[w];}));
 }
 
 function updateDashboardStats(products, lowStock) {
@@ -218,11 +247,16 @@ function renderDemoLowStock() {
 }
 
 function renderDemoChart() {
-  var canvas = document.getElementById('revenue-chart');
-  if (!canvas) return;
-  canvas.width = canvas.offsetWidth || 560;
-  var ctx = canvas.getContext('2d');
-  drawBarChart(ctx, canvas.width, 220, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], [12, 19, 8, 25, 14, 22, 5]);
+  var dCanvas = document.getElementById('daily-revenue-chart');
+  var wCanvas = document.getElementById('weekly-revenue-chart');
+  if (dCanvas) {
+    dCanvas.width = dCanvas.offsetWidth || 300;
+    drawBarChart(dCanvas.getContext('2d'), dCanvas.width, 200, ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], [5, 12, 19, 8, 25, 14, 22]);
+  }
+  if (wCanvas) {
+    wCanvas.width = wCanvas.offsetWidth || 300;
+    drawBarChart(wCanvas.getContext('2d'), wCanvas.width, 200, ['Week 1', 'Week 2', 'Week 3', 'Week 4'], [45, 60, 30, 85]);
+  }
 }
 
 function drawBarChart(ctx, w, h, labels, values) {
@@ -243,6 +277,7 @@ function drawBarChart(ctx, w, h, labels, values) {
     var val = (i/4)*max;
     ctx.fillText(val >= 1000 ? (val/1000).toFixed(1)+'k' : val.toFixed(0), pad.left-5, y+4);
   }
+  var rects = [];
   labels.forEach(function(label, i) {
     var x = pad.left + i*gap + (gap-barW)/2;
     var barH = (values[i]/max)*chartH;
@@ -255,7 +290,59 @@ function drawBarChart(ctx, w, h, labels, values) {
     ctx.fill();
     ctx.fillStyle = 'rgba(44,36,22,0.65)'; ctx.font = '10px Jost,sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(label, x+barW/2, h-pad.bottom/2+6);
+    rects.push({x: x+barW/2, y: y+barH/2, w: barW, h: barH, label: label, value: values[i]});
   });
+
+  // Attach hover logic
+  ctx.canvas._chartData = rects;
+  if (!ctx.canvas._hasHover) {
+    ctx.canvas._hasHover = true;
+    ctx.canvas.addEventListener('mousemove', function(e) {
+      var rect = ctx.canvas.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      var hovered = null;
+      if (ctx.canvas._chartData) {
+        for (var i=0; i<ctx.canvas._chartData.length; i++) {
+          var pt = ctx.canvas._chartData[i];
+          if (mx >= pt.x - pt.w/2 && mx <= pt.x + pt.w/2 && my >= pt.y - pt.h/2 && my <= pt.y + pt.h/2) {
+            hovered = pt;
+            break;
+          }
+        }
+      }
+      var tt = document.getElementById('chart-tooltip');
+      if (!tt) {
+        tt = document.createElement('div');
+        tt.id = 'chart-tooltip';
+        tt.style.position = 'absolute';
+        tt.style.background = 'rgba(0,0,0,0.85)';
+        tt.style.color = '#fff';
+        tt.style.padding = '6px 10px';
+        tt.style.borderRadius = '4px';
+        tt.style.fontSize = '12px';
+        tt.style.pointerEvents = 'none';
+        tt.style.zIndex = '1000';
+        tt.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+        tt.style.border = '1px solid rgba(255,255,255,0.1)';
+        document.body.appendChild(tt);
+      }
+      if (hovered) {
+        tt.style.display = 'block';
+        tt.innerHTML = hovered.label + '<br/><span style="color:var(--gold);font-weight:bold;font-size:14px">' + formatNumber(hovered.value) + ' items</span>';
+        tt.style.left = (e.pageX + 15) + 'px';
+        tt.style.top = (e.pageY + 15) + 'px';
+        ctx.canvas.style.cursor = 'pointer';
+      } else {
+        tt.style.display = 'none';
+        ctx.canvas.style.cursor = 'default';
+      }
+    });
+    ctx.canvas.addEventListener('mouseleave', function() {
+      var tt = document.getElementById('chart-tooltip');
+      if (tt) tt.style.display = 'none';
+    });
+  }
 }
 
 function drawCurvedLineChart(ctx, w, h, labels, values) {
@@ -423,7 +510,7 @@ function renderInventoryTable(products) {
     var barC = isOut ? 'critical' : isLow ? 'low' : 'ok';
     var bdg  = isOut ? 'badge-red' : isLow ? 'badge-orange' : 'badge-green';
     var lbl  = isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock';
-    return '<tr><td><div style="font-weight:600;font-size:0.83rem">' + p.name + '</div><div class="td-muted">' + (p.sku||'—') + '</div></td>'
+    return '<tr><td><div style="font-weight:600;font-size:0.83rem">' + p.name + '</div></td>'
       + '<td><span class="badge badge-gold">' + p.category + '</span></td>'
       + '<td><div class="stock-bar"><div class="stock-bar-track"><div class="stock-bar-fill ' + barC + '" style="width:' + pct + '%"></div></div><span class="stock-count">' + p.quantity + ' ' + (p.unit||'pcs') + '</span></div></td>'
       + '<td class="td-muted">' + p.min_stock + '</td>'
@@ -460,7 +547,7 @@ function editProduct(id) {
   if (!p) return;
   editingProductId = id;
   setText('product-modal-title', 'Edit Product');
-  setVal('pf-name', p.name); setVal('pf-category', p.category); setVal('pf-sku', p.sku||'');
+  setVal('pf-name', p.name); setVal('pf-category', p.category); 
   setVal('pf-unit', p.unit||'pcs'); setVal('pf-quantity', p.quantity); setVal('pf-min-stock', p.min_stock);
   setVal('pf-cost', p.cost_price); setVal('pf-price', p.selling_price); setVal('pf-description', p.description||'');
   populateSupplierDropdown(p.supplier || '');
@@ -477,7 +564,7 @@ function populateSupplierDropdown(selectedSupplier) {
 }
 
 async function saveProduct() {
-  var data = { name:getVal('pf-name').trim(), category:getVal('pf-category'), sku:getVal('pf-sku').trim()||null, unit:getVal('pf-unit'), quantity:parseInt(getVal('pf-quantity'))||0, min_stock:parseInt(getVal('pf-min-stock'))||5, cost_price:parseFloat(getVal('pf-cost'))||0, selling_price:parseFloat(getVal('pf-price'))||0, supplier:getVal('pf-supplier')||null, description:getVal('pf-description').trim()||null, updated_at:new Date().toISOString() };
+  var data = { name:getVal('pf-name').trim(), category:getVal('pf-category'), unit:getVal('pf-unit'), quantity:parseInt(getVal('pf-quantity'))||0, min_stock:parseInt(getVal('pf-min-stock'))||5, cost_price:parseFloat(getVal('pf-cost'))||0, selling_price:parseFloat(getVal('pf-price'))||0, supplier:getVal('pf-supplier')||null, description:getVal('pf-description').trim()||null, updated_at:new Date().toISOString() };
   if (!data.name || !data.category) { showToast('Name and category are required', 'error'); return; }
   if (!_isConnected) {
     if (editingProductId) { var i=allProducts.findIndex(function(p){return p.id===editingProductId;}); if(i>-1) allProducts[i]={...allProducts[i],...data}; }
@@ -609,14 +696,26 @@ function renderDemoReports() {
   setText('rpt-revenue-total', '124,500');
   setText('rpt-forecast', '125 items'); setText('rpt-forecast-trend', 'Projected stock out next month');
   setText('rpt-turnover', '2.8x');
-  var canvas=document.getElementById('rpt-revenue-chart'); if(!canvas) return;
-  canvas.width=canvas.offsetWidth||400;
-  drawBarChart(canvas.getContext('2d'),canvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[12,19,8,25,14,22,5]);
+  var dCanvas = document.getElementById('rpt-daily-revenue-chart');
+  var wCanvas = document.getElementById('rpt-weekly-revenue-chart');
+  if (dCanvas) {
+    dCanvas.width = dCanvas.offsetWidth || 300;
+    drawBarChart(dCanvas.getContext('2d'), dCanvas.width, 200, ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], [5, 12, 19, 8, 25, 14, 22]);
+  }
+  if (wCanvas) {
+    wCanvas.width = wCanvas.offsetWidth || 300;
+    drawBarChart(wCanvas.getContext('2d'), wCanvas.width, 200, ['Week 1', 'Week 2', 'Week 3', 'Week 4'], [45, 60, 30, 85]);
+  }
   
-  var curveCanvas=document.getElementById('rpt-revenue-curve-chart');
-  if(curveCanvas) {
-    curveCanvas.width=curveCanvas.offsetWidth||400;
-    drawCurvedLineChart(curveCanvas.getContext('2d'),curveCanvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[1500,2800,1200,3500,2100,4200,800]);
+  var dCurve = document.getElementById('rpt-daily-revenue-curve-chart');
+  var wCurve = document.getElementById('rpt-weekly-revenue-curve-chart');
+  if (dCurve) {
+    dCurve.width = dCurve.offsetWidth || 300;
+    drawCurvedLineChart(dCurve.getContext('2d'), dCurve.width, 200, ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], [800, 1500, 2800, 1200, 3500, 2100, 4200]);
+  }
+  if (wCurve) {
+    wCurve.width = wCurve.offsetWidth || 300;
+    drawCurvedLineChart(wCurve.getContext('2d'), wCurve.width, 200, ['Week 1', 'Week 2', 'Week 3', 'Week 4'], [10500, 14200, 8900, 18500]);
   }
   
   var el = document.getElementById('top-inventory-list');
@@ -627,51 +726,75 @@ function renderDemoReports() {
 }
 
 function renderStockChart(txns) {
-  var canvas=document.getElementById('rpt-revenue-chart'); if(!canvas) return;
-  var curveCanvas=document.getElementById('rpt-revenue-curve-chart');
-  canvas.width=canvas.offsetWidth||400;
+  var dCanvas=document.getElementById('rpt-daily-revenue-chart');
+  var wCanvas=document.getElementById('rpt-weekly-revenue-chart');
+  var dCurve=document.getElementById('rpt-daily-revenue-curve-chart');
+  var wCurve=document.getElementById('rpt-weekly-revenue-curve-chart');
+  
+  if(!dCanvas || !wCanvas || !dCurve || !wCurve) return;
+  
+  dCanvas.width=dCanvas.offsetWidth||300;
+  wCanvas.width=wCanvas.offsetWidth||300;
+  dCurve.width=dCurve.offsetWidth||300;
+  wCurve.width=wCurve.offsetWidth||300;
+  
+  var dCtx = dCanvas.getContext('2d');
+  var wCtx = wCanvas.getContext('2d');
+  var dcCtx = dCurve.getContext('2d');
+  var wcCtx = wCurve.getContext('2d');
   
   if(!txns.length) { 
     if(!_isConnected) { renderDemoReports(); return; }
-    drawBarChart(canvas.getContext('2d'),canvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[0,0,0,0,0,0,0]);
-    if(curveCanvas) {
-      curveCanvas.width=curveCanvas.offsetWidth||400;
-      drawCurvedLineChart(curveCanvas.getContext('2d'),curveCanvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[0,0,0,0,0,0,0]);
-    }
+    drawBarChart(dCtx, dCanvas.width, 200, ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], [0,0,0,0,0,0,0]);
+    drawBarChart(wCtx, wCanvas.width, 200, ['Week 1','Week 2','Week 3','Week 4'], [0,0,0,0]);
+    drawCurvedLineChart(dcCtx, dCurve.width, 200, ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], [0,0,0,0,0,0,0]);
+    drawCurvedLineChart(wcCtx, wCurve.width, 200, ['Week 1','Week 2','Week 3','Week 4'], [0,0,0,0]);
     return;
   }
-  
-  var groups={}, revGroups={};
+
   var outs = txns.filter(function(t){return t.type==='out';});
+  
+  // Daily Logic
+  var fixedDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var dGroups = { 'Sun':0, 'Mon':0, 'Tue':0, 'Wed':0, 'Thu':0, 'Fri':0, 'Sat':0 };
+  var dRevGroups = { 'Sun':0, 'Mon':0, 'Tue':0, 'Wed':0, 'Thu':0, 'Fri':0, 'Sat':0 };
+  var now = new Date();
+  var sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+  
   outs.forEach(function(t){
-    var d=new Date(t.created_at).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}); 
-    groups[d]=(groups[d]||0)+(t.quantity||0);
-    revGroups[d]=(revGroups[d]||0)+((t.quantity||0)*(t.products?t.products.selling_price||0:0));
-  });
-  var days=Object.keys(groups);
-  
-  if(days.length === 0) {
-    drawBarChart(canvas.getContext('2d'),canvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[0,0,0,0,0,0,0]);
-    if(curveCanvas) {
-      curveCanvas.width=curveCanvas.offsetWidth||400;
-      drawCurvedLineChart(curveCanvas.getContext('2d'),curveCanvas.width,200,['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],[0,0,0,0,0,0,0]);
+    var dt = new Date(t.created_at);
+    if (dt >= sevenDaysAgo) {
+      var dayStr = dt.toLocaleDateString('en-US', {weekday: 'short'});
+      if (dGroups[dayStr] !== undefined) {
+        dGroups[dayStr] += (t.quantity || 0);
+        dRevGroups[dayStr] += ((t.quantity || 0) * (t.products?t.products.selling_price||0:0));
+      }
     }
-    return;
-  }
-  
-  if(days.length === 1) {
-    var previousDay = new Date(new Date().getTime() - 86400000).toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
-    if(previousDay === days[0]) previousDay = "Prev Day";
-    days.unshift(previousDay);
-    groups[previousDay] = 0;
-    revGroups[previousDay] = 0;
-  }
-  
-  drawBarChart(canvas.getContext('2d'),canvas.width,200,days,days.map(function(d){return groups[d];}));
-  if(curveCanvas) {
-    curveCanvas.width=curveCanvas.offsetWidth||400;
-    drawCurvedLineChart(curveCanvas.getContext('2d'),curveCanvas.width,200,days,days.map(function(d){return revGroups[d]||0;}));
-  }
+  });
+
+  drawBarChart(dCtx, dCanvas.width, 200, fixedDays, fixedDays.map(function(d){return dGroups[d];}));
+  drawCurvedLineChart(dcCtx, dCurve.width, 200, fixedDays, fixedDays.map(function(d){return dRevGroups[d];}));
+
+  // Weekly Logic
+  var fixedWeeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+  var wGroups = { 'Week 1':0, 'Week 2':0, 'Week 3':0, 'Week 4':0 };
+  var wRevGroups = { 'Week 1':0, 'Week 2':0, 'Week 3':0, 'Week 4':0 };
+  var currentMonth = now.getMonth();
+  var currentYear = now.getFullYear();
+
+  outs.forEach(function(t){
+    var dt = new Date(t.created_at);
+    if (dt.getMonth() === currentMonth && dt.getFullYear() === currentYear) {
+      var weekNum = Math.ceil(dt.getDate() / 7);
+      if (weekNum > 4) weekNum = 4;
+      var wStr = "Week " + weekNum;
+      wGroups[wStr] = (wGroups[wStr] || 0) + (t.quantity || 0);
+      wRevGroups[wStr] = (wRevGroups[wStr] || 0) + ((t.quantity || 0) * (t.products?t.products.selling_price||0:0));
+    }
+  });
+
+  drawBarChart(wCtx, wCanvas.width, 200, fixedWeeks, fixedWeeks.map(function(w){return wGroups[w];}));
+  drawCurvedLineChart(wcCtx, wCurve.width, 200, fixedWeeks, fixedWeeks.map(function(w){return wRevGroups[w];}));
 }
 
 async function clearRevenue() {
