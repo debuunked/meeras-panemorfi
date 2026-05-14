@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,61 +10,117 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     /* ---- POS Grid ---- */
-    .pos-grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; height: calc(100vh - 160px); }
-    .pos-left { overflow-y: auto; }
-    .pos-right { display: flex; flex-direction: column; gap: 0; }
+    .pos-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 16px;
+      height: calc(100vh - 160px);
+    }
+
+    .pos-left {
+      overflow-y: auto;
+    }
+
+    .pos-right {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
     .pos-services {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
       gap: 10px;
       padding: 16px 0;
     }
+
     .pos-service-item {
       padding: 14px;
       background: var(--white);
-      border: 1px solid rgba(201,151,28,0.15);
+      border: 1px solid rgba(201, 151, 28, 0.15);
       border-radius: var(--radius-sm);
       cursor: pointer;
       transition: var(--transition);
     }
+
     .pos-service-item:hover {
       border-color: var(--gold);
       background: var(--gold-pale);
       transform: translateY(-2px);
       box-shadow: var(--shadow-gold);
     }
+
     .cart-panel {
       background: var(--white);
-      border: 1px solid rgba(201,151,28,0.12);
+      border: 1px solid rgba(201, 151, 28, 0.12);
       border-radius: var(--radius);
       display: flex;
       flex-direction: column;
       height: 100%;
       overflow: hidden;
     }
+
     .cart-header {
       padding: 14px 16px;
       background: linear-gradient(135deg, var(--dark), #2C1E0A);
       color: white;
     }
+
     .cart-header h3 {
       font-family: var(--font-display);
       font-size: 0.9rem;
       letter-spacing: 0.06em;
       color: var(--gold-light);
     }
-    .cart-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
-    .cart-footer { padding: 14px 16px; border-top: 1px solid rgba(201,151,28,0.1); }
-    .cart-totals { margin-bottom: 12px; }
-    .cart-row { display: flex; justify-content: space-between; font-size: 0.8rem; padding: 4px 0; color: var(--gray); }
-    .cart-row.total { font-size: 1rem; font-weight: 700; color: var(--dark); border-top: 1px solid rgba(201,151,28,0.1); padding-top: 8px; margin-top: 4px; }
-    .cart-row.total .cart-total-val { color: var(--gold-dark); }
+
+    .cart-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+
+    .cart-footer {
+      padding: 14px 16px;
+      border-top: 1px solid rgba(201, 151, 28, 0.1);
+    }
+
+    .cart-totals {
+      margin-bottom: 12px;
+    }
+
+    .cart-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      padding: 4px 0;
+      color: var(--gray);
+    }
+
+    .cart-row.total {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--dark);
+      border-top: 1px solid rgba(201, 151, 28, 0.1);
+      padding-top: 8px;
+      margin-top: 4px;
+    }
+
+    .cart-row.total .cart-total-val {
+      color: var(--gold-dark);
+    }
+
     /* Pos category filter */
-    .pos-cat-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+    .pos-cat-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
     .pos-cat-btn {
       padding: 6px 14px;
       border-radius: 99px;
-      border: 1px solid rgba(201,151,28,0.2);
+      border: 1px solid rgba(201, 151, 28, 0.2);
       background: var(--white);
       font-size: 0.75rem;
       font-family: var(--font-body);
@@ -72,611 +129,704 @@
       transition: var(--transition);
       color: var(--gray);
     }
-    .pos-cat-btn.active, .pos-cat-btn:hover {
+
+    .pos-cat-btn.active,
+    .pos-cat-btn:hover {
       background: var(--gold);
       border-color: var(--gold);
       color: white;
     }
-    @media(max-width:900px){.pos-grid{grid-template-columns:1fr;height:auto;}}
+
+    @media(max-width:900px) {
+      .pos-grid {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+    }
   </style>
 </head>
+
 <body>
 
-<!-- ===== LOGIN SCREEN ===== -->
-<div id="login-screen" style="display:flex; height:100vh; align-items:center; justify-content:center; background:var(--dark); color:white; flex-direction:column; gap:20px;">
-  <div style="text-align:center; background:#1A130A; padding:40px; border-radius:12px; border:1px solid rgba(201,151,28,0.2); box-shadow:0 10px 30px rgba(0,0,0,0.5); width:320px;">
-    <h2 style="color:var(--gold); font-family:var(--font-display); margin-bottom:10px;">Meeras Panemorfi</h2>
-    <p style="color:var(--gray); font-size:0.85rem; margin-bottom:30px;">Authorized Access Only</p>
-    <div style="margin-bottom:15px; text-align:left;">
-      <label style="font-size:0.75rem; color:var(--gold-light);">Email</label>
-      <input type="email" id="login-email" style="width:100%; padding:10px; border-radius:6px; border:1px solid rgba(201,151,28,0.3); background:transparent; color:white; margin-top:5px;" placeholder="admin@meeras.com">
+  <!-- ===== LOGIN SCREEN ===== -->
+  <div id="login-screen"
+    style="display:flex; height:100vh; align-items:center; justify-content:center; background:var(--dark); color:white; flex-direction:column; gap:20px;">
+    <div
+      style="text-align:center; background:#1A130A; padding:40px; border-radius:12px; border:1px solid rgba(201,151,28,0.2); box-shadow:0 10px 30px rgba(0,0,0,0.5); width:320px;">
+      <h2 style="color:var(--gold); font-family:var(--font-display); margin-bottom:10px;">Meeras Panemorfi</h2>
+      <p style="color:var(--gray); font-size:0.85rem; margin-bottom:30px;">Authorized Access Only</p>
+      <div style="margin-bottom:15px; text-align:left;">
+        <label style="font-size:0.75rem; color:var(--gold-light);">Email</label>
+        <input type="email" id="login-email"
+          style="width:100%; padding:10px; border-radius:6px; border:1px solid rgba(201,151,28,0.3); background:transparent; color:white; margin-top:5px;"
+          placeholder="admin@meeras.com">
+      </div>
+      <div style="margin-bottom:25px; text-align:left;">
+        <label style="font-size:0.75rem; color:var(--gold-light);">Password</label>
+        <input type="password" id="login-pass"
+          style="width:100%; padding:10px; border-radius:6px; border:1px solid rgba(201,151,28,0.3); background:transparent; color:white; margin-top:5px;"
+          placeholder="••••••••">
+      </div>
+      <button class="btn btn-gold" style="width:100%; padding:12px; font-weight:bold;" onclick="handleLogin()">LOGIN TO
+        SYSTEM</button>
     </div>
-    <div style="margin-bottom:25px; text-align:left;">
-      <label style="font-size:0.75rem; color:var(--gold-light);">Password</label>
-      <input type="password" id="login-pass" style="width:100%; padding:10px; border-radius:6px; border:1px solid rgba(201,151,28,0.3); background:transparent; color:white; margin-top:5px;" placeholder="••••••••">
-    </div>
-    <button class="btn btn-gold" style="width:100%; padding:12px; font-weight:bold;" onclick="handleLogin()">LOGIN TO SYSTEM</button>
   </div>
-</div>
 
-<div class="app-wrapper" id="app-wrapper" style="display:none;">
+  <div class="app-wrapper" id="app-wrapper" style="display:none;">
 
-  <!-- ===== SIDEBAR ===== -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo">
-      <img src="assets/logo.jpg" alt="Meeras Panemorfi" onerror="this.style.display='none';this.nextElementSibling.querySelector('span').textContent='MP'"/>
-      <div class="sidebar-logo-text">
-        <h2>Meeras Panemorfi</h2>
-        <span>Beauty &amp; Wellness</span>
-      </div>
-    </div>
-
-    <nav class="sidebar-nav">
-      <div class="nav-section-label">Main</div>
-      <a class="nav-item" data-page="dashboard" title="View your high-level overview and alerts ⓘ">
-        <span class="nav-icon">⬡</span> Dashboard
-      </a>
-      <a class="nav-item" data-page="inventory" title="Manage all products, stock levels, and prices ⓘ">
-        <span class="nav-icon">📦</span> Inventory
-        <span class="nav-badge" id="low-stock-badge" style="display:none">0</span>
-      </a>
-
-      <div class="nav-section-label">Management</div>
-      <a class="nav-item" data-page="reports" title="Analyze business performance, sales, and forecasting ⓘ">
-        <span class="nav-icon">📊</span> Reports
-      </a>
-      <a class="nav-item" data-page="suppliers" title="Manage your supplier contacts and details ⓘ">
-        <span class="nav-icon">🚚</span> Suppliers
-      </a>
-    </nav>
-
-    <div class="sidebar-footer">
-      <div class="sidebar-user">
-        <div class="user-avatar">M</div>
-        <div class="user-info">
-          <div class="user-name">Meera's Admin</div>
-          <div class="user-role">Owner</div>
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-logo">
+        <img src="assets/logo.jpg" alt="Meeras Panemorfi"
+          onerror="this.style.display='none';this.nextElementSibling.querySelector('span').textContent='MP'" />
+        <div class="sidebar-logo-text">
+          <h2>Meeras Panemorfi</h2>
+          <span>Beauty &amp; Wellness</span>
         </div>
       </div>
-    </div>
-  </aside>
 
-  <!-- ===== MAIN CONTENT ===== -->
-  <div class="main-content">
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Main</div>
+        <a class="nav-item" data-page="dashboard" title="View your high-level overview and alerts ⓘ">
+          <span class="nav-icon">⬡</span> Dashboard
+        </a>
+        <a class="nav-item" data-page="inventory" title="Manage all products, stock levels, and prices ⓘ">
+          <span class="nav-icon">📦</span> Inventory
+          <span class="nav-badge" id="low-stock-badge" style="display:none">0</span>
+        </a>
 
-    <!-- Header -->
-    <header class="top-header">
-      <div class="header-title">
-        <h1 id="page-title">Dashboard</h1>
-        <p id="page-sub">Welcome back, Owner</p>
-      </div>
-      <div class="header-actions">
-        <button class="header-btn" onclick="navigateTo('inventory')" title="Low Stock Alerts">
-          ⚠
-          <span class="notif-dot" id="header-alert-dot" style="display:none"></span>
-        </button>
+        <div class="nav-section-label">Management</div>
+        <a class="nav-item" data-page="reports" title="Analyze business performance, sales, and forecasting ⓘ">
+          <span class="nav-icon">📊</span> Reports
+        </a>
+        <a class="nav-item" data-page="suppliers" title="Manage your supplier contacts and details ⓘ">
+          <span class="nav-icon">🚚</span> Suppliers
+        </a>
+      </nav>
 
-        <button class="header-btn" onclick="handleLogout()" title="Logout" style="color:var(--red);">⏻</button>
-      </div>
-    </header>
-
-    <!-- ========== DASHBOARD ========== -->
-    <div id="page-dashboard" class="page-content">
-      
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">Total Products</div>
-          <div class="stat-value" id="stat-products">—</div>
-          <div class="stat-sub">Active inventory items</div>
-          <div class="stat-icon">📦</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Low Stock Alerts</div>
-          <div class="stat-value" id="stat-low-stock" style="color:var(--red)">—</div>
-          <div class="stat-sub">Items need restocking</div>
-          <div class="stat-icon">⚠</div>
-        </div>
-
-      </div>
-
-      <div class="quick-row">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">📊 Weekly Sales & Stock Trends</div>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="user-avatar">M</div>
+          <div class="user-info">
+            <div class="user-name">Meera's Admin</div>
+            <div class="user-role">Owner</div>
           </div>
-          <div class="card-body" style="padding:16px">
-            <div style="height:220px;position:relative">
-              <canvas id="revenue-chart" width="600" height="220" style="width:100%;height:220px"></canvas>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="main-content">
+
+      <!-- Header -->
+      <header class="top-header">
+        <div class="header-title">
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-sub">Welcome back, Owner</p>
+        </div>
+        <div class="header-actions">
+          <button class="header-btn" onclick="navigateTo('inventory')" title="Low Stock Alerts">
+            ⚠
+            <span class="notif-dot" id="header-alert-dot" style="display:none"></span>
+          </button>
+
+          <button class="header-btn" onclick="handleLogout()" title="Logout" style="color:var(--red);">⏻</button>
+        </div>
+      </header>
+
+      <!-- ========== DASHBOARD ========== -->
+      <div id="page-dashboard" class="page-content">
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Products</div>
+            <div class="stat-value" id="stat-products">—</div>
+            <div class="stat-sub">Active inventory items</div>
+            <div class="stat-icon">📦</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Low Stock Alerts</div>
+            <div class="stat-value" id="stat-low-stock" style="color:var(--red)">—</div>
+            <div class="stat-sub">Items need restocking</div>
+            <div class="stat-icon">⚠</div>
+          </div>
+
+        </div>
+
+        <div class="quick-row">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">📊 Daily & Weekly Sales Trends</div>
+            </div>
+            <div class="card-body" style="padding:16px; display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div style="height:220px;position:relative">
+                <h4 style="font-size:0.85rem; color:var(--gray); text-align:center; margin-bottom:8px;">Daily Sales (Last 7 Days)</h4>
+                <canvas id="daily-revenue-chart" width="300" height="200" style="width:100%;height:200px"></canvas>
+              </div>
+              <div style="height:220px;position:relative">
+                <h4 style="font-size:0.85rem; color:var(--gray); text-align:center; margin-bottom:8px;">Weekly Sales (Last 4 Weeks)</h4>
+                <canvas id="weekly-revenue-chart" width="300" height="200" style="width:100%;height:200px"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">⚠ Low Stock Alerts</div>
+              <button class="btn btn-outline btn-sm" onclick="navigateTo('inventory')">View All</button>
+            </div>
+            <div class="card-body" id="low-stock-list">
+              <div class="loading-spinner"></div>
             </div>
           </div>
         </div>
+
         <div class="card">
           <div class="card-header">
-            <div class="card-title">⚠ Low Stock Alerts</div>
-            <button class="btn btn-outline btn-sm" onclick="navigateTo('inventory')">View All</button>
+            <div class="card-title">🕐 Recent Activity</div>
+            <button class="btn btn-ghost btn-sm" onclick="loadRecentActivity()">Refresh</button>
           </div>
-          <div class="card-body" id="low-stock-list">
+          <div class="card-body" id="activity-list">
             <div class="loading-spinner"></div>
           </div>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">🕐 Recent Activity</div>
-          <button class="btn btn-ghost btn-sm" onclick="loadRecentActivity()">Refresh</button>
-        </div>
-        <div class="card-body" id="activity-list">
-          <div class="loading-spinner"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========== INVENTORY ========== -->
-    <div id="page-inventory" class="page-content hidden">
-      <div class="section-header">
-        <div class="section-header-left">
-          <h2>INVENTORY MANAGEMENT</h2>
-          <p>Track products, supplies &amp; stock levels</p>
-        </div>
-        <button class="btn btn-gold" onclick="openAddProductModal()">+ Add Product</button>
-      </div>
-
-      <div class="filter-bar">
-        <div class="search-box">
-          <span class="search-icon">🔍</span>
-          <input type="text" id="inv-search" placeholder="Search products..." oninput="filterInventory()" />
-        </div>
-        <select class="filter-select" id="inv-cat-filter" onchange="filterInventory()">
-          <option value="">All Categories</option>
-          <option>Skincare</option>
-          <option>Waxing</option>
-          <option>Threading</option>
-          <option>Tinting</option>
-          <option>Nails</option>
-          <option>Facial</option>
-          <option>Equipment</option>
-          <option>Consumables</option>
-          <option>Other</option>
-        </select>
-        <select class="filter-select" id="inv-stock-filter" onchange="filterInventory()">
-          <option value="">All Stock Status</option>
-          <option value="ok">Well Stocked</option>
-          <option value="low">Low Stock</option>
-          <option value="out">Out of Stock</option>
-        </select>
-        <button class="btn btn-outline btn-sm" onclick="loadInventory()">↻ Refresh</button>
-      </div>
-
-      <div class="card">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Product</th><th>Category</th><th>Stock</th><th>Min. Stock</th>
-                <th>Cost Price</th><th>Selling Price</th><th>Status</th><th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="inventory-tbody">
-              <tr><td colspan="8" style="text-align:center;padding:30px"><div class="loading-spinner"></div></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-
-
-    <!-- ========== REPORTS ========== -->
-    <div id="page-reports" class="page-content hidden">
-      <div class="section-header">
-        <div class="section-header-left">
-          <h2>REPORTS &amp; ANALYTICS</h2>
-          <p>Performance insights &amp; data analysis</p>
-        </div>
-        <div style="display:flex; gap:12px; align-items:center;">
-          <button class="btn btn-danger" onclick="clearRevenue()" title="Reset and delete all revenue history ⓘ">🗑 Clear Revenue</button>
-          <button class="btn btn-outline" onclick="loadReports()">↻ Refresh</button>
-        </div>
-      </div>
-
-      <div class="stats-grid" style="margin-bottom:20px; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px;">
-        <div class="stat-card" title="Total active products in the system ⓘ">
-          <div class="stat-label">Active Products</div>
-          <div class="stat-value" id="rpt-products">—</div>
-          <div class="stat-icon">📦</div>
-        </div>
-        <div class="stat-card" title="Products with healthy stock levels ⓘ">
-          <div class="stat-label">Well Stocked</div>
-          <div class="stat-value" id="rpt-well" style="color:var(--green)">—</div>
-          <div class="stat-icon">✔</div>
-        </div>
-        <div class="stat-card" title="Products that are running low and need restocking ⓘ">
-          <div class="stat-label">Low Stock</div>
-          <div class="stat-value" id="rpt-low" style="color:var(--orange)">—</div>
-          <div class="stat-icon">⚠</div>
-        </div>
-        <div class="stat-card" title="Products that are completely out of stock ⓘ">
-          <div class="stat-label">Out of Stock</div>
-          <div class="stat-value" id="rpt-out" style="color:var(--red)">—</div>
-          <div class="stat-icon">❌</div>
-        </div>
-        <div class="stat-card" title="Total sales revenue generated from stock sold this month ⓘ">
-          <div class="stat-label">Revenue (Month)</div>
-          <div class="stat-value" id="rpt-revenue-total" style="color:var(--gold-dark)">—</div>
-          <div class="stat-icon">₱</div>
-        </div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
-        <div class="card" style="grid-column: span 2;">
-          <div class="card-header"><div class="card-title">📊 Sales & Stock Trends (This Month)</div></div>
-          <div class="card-body" title="This bar chart shows the exact quantity of items consumed or sold each day ⓘ">
-            <canvas id="rpt-revenue-chart" height="200" style="width:100%"></canvas>
+      <!-- ========== INVENTORY ========== -->
+      <div id="page-inventory" class="page-content hidden">
+        <div class="section-header">
+          <div class="section-header-left">
+            <h2>INVENTORY MANAGEMENT</h2>
+            <p>Track products, supplies &amp; stock levels</p>
           </div>
+          <button class="btn btn-gold" onclick="openAddProductModal()">+ Add Product</button>
         </div>
-        <div class="card" style="grid-column: span 2;">
-          <div class="card-header"><div class="card-title">📉 Revenue Curve (This Month)</div></div>
-          <div class="card-body" title="This line graph shows the revenue generated each day based on items sold ⓘ">
-            <canvas id="rpt-revenue-curve-chart" height="200" style="width:100%"></canvas>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><div class="card-title">📈 Sales & Inventory Forecasting</div></div>
-          <div class="card-body" style="padding:16px;">
-            <p style="font-size:0.85rem; color:var(--gray); margin-bottom:12px;">Predicted next month stock consumption and sales volume based on historical usage.</p>
-            <div style="font-size:1.8rem; font-weight:bold; color:var(--gold-dark); margin-bottom:12px;" id="rpt-forecast">—</div>
-            <div style="font-size:0.75rem; color:var(--green);" id="rpt-forecast-trend">Analyzing historical data...</div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><div class="card-title">🔄 Inventory Turnover Velocity</div></div>
-          <div class="card-body" style="padding:16px;">
-            <p style="font-size:0.85rem; color:var(--gray); margin-bottom:12px;">Speed at which stock is sold and replaced.</p>
-            <div style="font-size:1.8rem; font-weight:bold; color:var(--dark); margin-bottom:12px;" id="rpt-turnover">—</div>
-            <div style="font-size:0.75rem; color:var(--gray);">Target: > 4.0 / month for healthy cashflow</div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><div class="card-title" title="Total capital locked up in your current stock ⓘ">🏆 Top Valuable Inventory</div></div>
-          <div class="card-body" id="top-inventory-list">
-            <div class="loading-spinner"></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><div class="card-title" title="Top 3 Suppliers whose products have generated the most revenue ⓘ">🌟 Top Suppliers (By Revenue)</div></div>
-          <div class="card-body" id="top-suppliers-list">
-            <div class="loading-spinner"></div>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- ========== SUPPLIERS ========== -->
-    <div id="page-suppliers" class="page-content hidden">
-      <div class="section-header">
-        <div class="section-header-left">
-          <h2>SUPPLIERS</h2>
-          <p>Vendor &amp; supplier management</p>
-        </div>
-        <button class="btn btn-gold" onclick="openAddSupplierModal()">+ Add Supplier</button>
-      </div>
-      <div class="card">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Name</th><th>Contact Person</th><th>Phone</th><th>Email</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody id="suppliers-tbody">
-              <tr><td colspan="6" style="text-align:center;padding:30px"><div class="loading-spinner"></div></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-
-
-
-
-  </div><!-- end main-content -->
-</div><!-- end app-wrapper -->
-
-<!-- ===== TOAST CONTAINER ===== -->
-<div id="toast-container"></div>
-
-<!-- ===== MODALS ===== -->
-
-<!-- Add/Edit Product Modal -->
-<div class="modal-overlay" id="product-modal">
-  <div class="modal">
-    <div class="modal-header">
-      <h3 id="product-modal-title">Add Product</h3>
-      <button class="modal-close" onclick="closeModal('product-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="product-form" onsubmit="return false">
-        <div class="form-grid form-grid-2">
-          <div class="form-group" style="grid-column:span 2">
-            <label title="The exact name of the product or item">Product Name * ⓘ</label>
-            <input type="text" id="pf-name" placeholder="e.g. Facial Cleanser" required />
+        <div class="filter-bar">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="inv-search" placeholder="Search products..." oninput="filterInventory()" />
           </div>
-          <div class="form-group">
-            <label>Category *</label>
-            <select id="pf-category" required>
-              <option value="">Select category</option>
-              <option>Skincare</option><option>Waxing</option><option>Threading</option>
-              <option>Tinting</option><option>Nails</option><option>Facial</option>
-              <option>Equipment</option><option>Consumables</option><option>Other</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>SKU / Code</label>
-            <input type="text" id="pf-sku" placeholder="e.g. SK001" />
-          </div>
-          <div class="form-group">
-            <label>Unit</label>
-            <select id="pf-unit">
-              <option value="pcs">Pieces</option><option value="bottle">Bottle</option>
-              <option value="tube">Tube</option><option value="roll">Roll</option>
-              <option value="spool">Spool</option><option value="set">Set</option>
-              <option value="box">Box</option><option value="pack">Pack</option>
-              <option value="ml">mL</option><option value="g">Grams</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label title="How many of these items you currently have in stock">Current Quantity ⓘ</label>
-            <input type="number" id="pf-quantity" value="0" min="0" />
-          </div>
-          <div class="form-group">
-            <label>Minimum Stock Alert</label>
-            <input type="number" id="pf-min-stock" value="5" min="0" />
-          </div>
-          <div class="form-group">
-            <label title="How much you paid the supplier for this item">Cost Price (₱) ⓘ</label>
-            <input type="number" id="pf-cost" placeholder="0.00" min="0" step="0.01" />
-          </div>
-          <div class="form-group">
-            <label title="How much you charge customers for this item (your markup)">Selling Price (₱) ⓘ</label>
-            <input type="number" id="pf-price" placeholder="0.00" min="0" step="0.01" />
-            <span class="form-hint">Leave 0 if not sold separately</span>
-          </div>
-          <div class="form-group" style="grid-column:span 2">
-            <label title="The company or person who supplies this product">Supplier ⓘ</label>
-            <select id="pf-supplier">
-              <option value="">None / Unassigned</option>
-            </select>
-          </div>
-          <div class="form-group" style="grid-column:span 2">
-            <label>Description</label>
-            <textarea id="pf-description" placeholder="Optional notes..."></textarea>
-          </div>
-        </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('product-modal')">Cancel</button>
-      <button class="btn btn-gold" onclick="saveProduct()">💾 Save Product</button>
-    </div>
-  </div>
-</div>
-
-<!-- Stock Adjustment Modal -->
-<div class="modal-overlay" id="stock-modal">
-  <div class="modal" style="max-width:420px">
-    <div class="modal-header">
-      <h3>Adjust Stock</h3>
-      <button class="modal-close" onclick="closeModal('stock-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <p style="font-weight:600;margin-bottom:4px;color:var(--dark)" id="stock-product-name">Product</p>
-      <div id="stock-current-info" style="font-size:0.85rem; color:var(--gray); margin-bottom:16px;">Current Stock: —</div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label title="Whether you are consuming the item or restocking it">Adjustment Type ⓘ</label>
-          <select id="stock-type" onchange="updateStockPreview()">
-            <option value="out" selected>Remove Stock (- Out)</option>
-            <option value="in">Add Stock (+ In)</option>
+          <select class="filter-select" id="inv-cat-filter" onchange="filterInventory()">
+            <option value="">All Categories</option>
+            <option>Skincare</option>
+            <option>Waxing</option>
+            <option>Threading</option>
+            <option>Tinting</option>
+            <option>Nails</option>
+            <option>Facial</option>
+            <option>Equipment</option>
+            <option>Consumables</option>
+            <option>Other</option>
           </select>
+          <select class="filter-select" id="inv-stock-filter" onchange="filterInventory()">
+            <option value="">All Stock Status</option>
+            <option value="ok">Well Stocked</option>
+            <option value="low">Low Stock</option>
+            <option value="out">Out of Stock</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="loadInventory()">↻ Refresh</button>
         </div>
-        <div class="form-group">
-          <label title="How many items are being added or removed">Quantity ⓘ</label>
-          <input type="number" id="stock-qty" value="1" min="1" oninput="updateStockPreview()" />
-        </div>
-        <div class="form-group" style="grid-column:span 2">
-          <label>Notes / Reason</label>
-          <input type="text" id="stock-notes" placeholder="e.g. Purchased from supplier, Used for service..." />
+
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Stock</th>
+                  <th>Min. Stock</th>
+                  <th>Cost Price</th>
+                  <th>Selling Price</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-tbody">
+                <tr>
+                  <td colspan="8" style="text-align:center;padding:30px">
+                    <div class="loading-spinner"></div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('stock-modal')">Cancel</button>
-      <button class="btn btn-gold" onclick="saveStockAdjustment()">✓ Update Stock</button>
-    </div>
-  </div>
-</div>
 
-<!-- Add/Edit Service Modal -->
-<div class="modal-overlay" id="service-modal">
-  <div class="modal" style="max-width:480px">
-    <div class="modal-header">
-      <h3 id="service-modal-title">Add Service</h3>
-      <button class="modal-close" onclick="closeModal('service-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="service-form" onsubmit="return false">
-        <div class="form-grid form-grid-2">
-          <div class="form-group" style="grid-column:span 2">
-            <label>Service Name *</label>
-            <input type="text" id="sf-name" placeholder="e.g. Korean Black Pearl" required />
+
+
+      <!-- ========== REPORTS ========== -->
+      <div id="page-reports" class="page-content hidden">
+        <div class="section-header">
+          <div class="section-header-left">
+            <h2>REPORTS &amp; ANALYTICS</h2>
+            <p>Performance insights &amp; data analysis</p>
           </div>
-          <div class="form-group">
-            <label>Category *</label>
-            <input type="text" id="sf-category" list="svc-cats" placeholder="e.g. Facial" required />
-            <datalist id="svc-cats">
-              <option>Facial</option><option>Waxing</option><option>Threading</option>
-              <option>Tinting</option><option>Meso Treatments</option>
-              <option>Exilis Treatments</option><option>Face Tightening</option><option>Nails</option>
-            </datalist>
-          </div>
-          <div class="form-group">
-            <label>Price (₱) *</label>
-            <input type="number" id="sf-price" placeholder="0.00" min="0" step="0.01" required />
-          </div>
-          <div class="form-group">
-            <label>Duration (minutes)</label>
-            <input type="number" id="sf-duration" value="60" min="5" step="5" />
-          </div>
-          <div class="form-group" style="grid-column:span 2">
-            <label>Description</label>
-            <textarea id="sf-description" placeholder="Optional description..."></textarea>
+          <div style="display:flex; gap:12px; align-items:center;">
+            <button class="btn btn-danger" onclick="clearRevenue()" title="Reset and delete all revenue history ⓘ">🗑
+              Clear Revenue</button>
+            <button class="btn btn-outline" onclick="loadReports()">↻ Refresh</button>
           </div>
         </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('service-modal')">Cancel</button>
-      <button class="btn btn-gold" onclick="saveService()">💾 Save Service</button>
+
+        <div class="stats-grid"
+          style="margin-bottom:20px; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px;">
+          <div class="stat-card" title="Total active products in the system ⓘ">
+            <div class="stat-label">Active Products</div>
+            <div class="stat-value" id="rpt-products">—</div>
+            <div class="stat-icon">📦</div>
+          </div>
+          <div class="stat-card" title="Products with healthy stock levels ⓘ">
+            <div class="stat-label">Well Stocked</div>
+            <div class="stat-value" id="rpt-well" style="color:var(--green)">—</div>
+            <div class="stat-icon">✔</div>
+          </div>
+          <div class="stat-card" title="Products that are running low and need restocking ⓘ">
+            <div class="stat-label">Low Stock</div>
+            <div class="stat-value" id="rpt-low" style="color:var(--orange)">—</div>
+            <div class="stat-icon">⚠</div>
+          </div>
+          <div class="stat-card" title="Products that are completely out of stock ⓘ">
+            <div class="stat-label">Out of Stock</div>
+            <div class="stat-value" id="rpt-out" style="color:var(--red)">—</div>
+            <div class="stat-icon">❌</div>
+          </div>
+          <div class="stat-card" title="Total sales revenue generated from stock sold this month ⓘ">
+            <div class="stat-label">Revenue (Month)</div>
+            <div class="stat-value" id="rpt-revenue-total" style="color:var(--gold-dark)">—</div>
+            <div class="stat-icon">₱</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+          <div class="card" style="grid-column: span 2;">
+            <div class="card-header">
+              <div class="card-title">📊 Sales & Stock Trends (This Month)</div>
+            </div>
+            <div class="card-body" style="padding:16px; display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div style="height:220px;position:relative">
+                <h4 style="font-size:0.85rem; color:var(--gray); text-align:center; margin-bottom:8px;">Daily Sales (Last 7 Days)</h4>
+                <canvas id="rpt-daily-revenue-chart" height="200" style="width:100%"></canvas>
+              </div>
+              <div style="height:220px;position:relative">
+                <h4 style="font-size:0.85rem; color:var(--gray); text-align:center; margin-bottom:8px;">Weekly Sales (Week 1-4)</h4>
+                <canvas id="rpt-weekly-revenue-chart" height="200" style="width:100%"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="grid-column: span 2;">
+            <div class="card-header">
+              <div class="card-title">📉 Revenue Curve (This Month)</div>
+            </div>
+            <div class="card-body" style="padding:16px; display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div style="height:220px;position:relative">
+                <h4 style="font-size:0.85rem; color:var(--gray); text-align:center; margin-bottom:8px;">Daily Revenue (Last 7 Days)</h4>
+                <canvas id="rpt-daily-revenue-curve-chart" height="200" style="width:100%"></canvas>
+              </div>
+              <div style="height:220px;position:relative">
+                <h4 style="font-size:0.85rem; color:var(--gray); text-align:center; margin-bottom:8px;">Weekly Revenue (Week 1-4)</h4>
+                <canvas id="rpt-weekly-revenue-curve-chart" height="200" style="width:100%"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">📈 Sales & Inventory Forecasting</div>
+            </div>
+            <div class="card-body" style="padding:16px;">
+              <p style="font-size:0.85rem; color:var(--gray); margin-bottom:12px;">Predicted next month stock
+                consumption and sales volume based on historical usage.</p>
+              <div style="font-size:1.8rem; font-weight:bold; color:var(--gold-dark); margin-bottom:12px;"
+                id="rpt-forecast">—</div>
+              <div style="font-size:0.75rem; color:var(--green);" id="rpt-forecast-trend">Analyzing historical data...
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">🔄 Inventory Turnover Velocity</div>
+            </div>
+            <div class="card-body" style="padding:16px;">
+              <p style="font-size:0.85rem; color:var(--gray); margin-bottom:12px;">Speed at which stock is sold and
+                replaced.</p>
+              <div style="font-size:1.8rem; font-weight:bold; color:var(--dark); margin-bottom:12px;" id="rpt-turnover">
+                —</div>
+              <div style="font-size:0.75rem; color:var(--gray);">Target: > 4.0 / month for healthy cashflow</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title" title="Total capital locked up in your current stock ⓘ">🏆 Top Valuable Inventory
+              </div>
+            </div>
+            <div class="card-body" id="top-inventory-list">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title" title="Top 3 Suppliers whose products have generated the most revenue ⓘ">🌟 Top
+                Suppliers (By Revenue)</div>
+            </div>
+            <div class="card-body" id="top-suppliers-list">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== SUPPLIERS ========== -->
+      <div id="page-suppliers" class="page-content hidden">
+        <div class="section-header">
+          <div class="section-header-left">
+            <h2>SUPPLIERS</h2>
+            <p>Vendor &amp; supplier management</p>
+          </div>
+          <button class="btn btn-gold" onclick="openAddSupplierModal()">+ Add Supplier</button>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Contact Person</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="suppliers-tbody">
+                <tr>
+                  <td colspan="6" style="text-align:center;padding:30px">
+                    <div class="loading-spinner"></div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+
+
+
+
+    </div><!-- end main-content -->
+  </div><!-- end app-wrapper -->
+
+  <!-- ===== TOAST CONTAINER ===== -->
+  <div id="toast-container"></div>
+
+  <!-- ===== MODALS ===== -->
+
+  <!-- Add/Edit Product Modal -->
+  <div class="modal-overlay" id="product-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="product-modal-title">Add Product</h3>
+        <button class="modal-close" onclick="closeModal('product-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="product-form" onsubmit="return false">
+          <div class="form-grid form-grid-2">
+            <div class="form-group" style="grid-column:span 2">
+              <label title="The exact name of the product or item">Product Name * ⓘ</label>
+              <input type="text" id="pf-name" placeholder="e.g. Facial Cleanser" required />
+            </div>
+            <div class="form-group">
+              <label>Category *</label>
+              <select id="pf-category" required>
+                <option value="">Select category</option>
+                <option>Skincare</option>
+                <option>Waxing</option>
+                <option>Threading</option>
+                <option>Tinting</option>
+                <option>Nails</option>
+                <option>Facial</option>
+                <option>Equipment</option>
+                <option>Consumables</option>
+                <option>Other</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Unit</label>
+              <select id="pf-unit">
+                <option value="pcs">Pieces</option>
+                <option value="bottle">Bottle</option>
+                <option value="tube">Tube</option>
+                <option value="roll">Roll</option>
+                <option value="spool">Spool</option>
+                <option value="set">Set</option>
+                <option value="box">Box</option>
+                <option value="pack">Pack</option>
+                <option value="ml">mL</option>
+                <option value="g">Grams</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label title="How many of these items you currently have in stock">Current Quantity ⓘ</label>
+              <input type="number" id="pf-quantity" value="0" min="0" />
+            </div>
+            <div class="form-group">
+              <label>Minimum Stock Alert</label>
+              <input type="number" id="pf-min-stock" value="5" min="0" />
+            </div>
+            <div class="form-group">
+              <label title="How much you paid the supplier for this item">Cost Price (₱) ⓘ</label>
+              <input type="number" id="pf-cost" placeholder="0.00" min="0" step="0.01" />
+            </div>
+            <div class="form-group">
+              <label title="How much you charge customers for this item (your markup)">Selling Price (₱) ⓘ</label>
+              <input type="number" id="pf-price" placeholder="0.00" min="0" step="0.01" />
+              <span class="form-hint">Leave 0 if not sold separately</span>
+            </div>
+            <div class="form-group" style="grid-column:span 2">
+              <label title="The company or person who supplies this product">Supplier ⓘ</label>
+              <select id="pf-supplier">
+                <option value="">None / Unassigned</option>
+              </select>
+            </div>
+            <div class="form-group" style="grid-column:span 2">
+              <label>Description</label>
+              <textarea id="pf-description" placeholder="Optional notes..."></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('product-modal')">Cancel</button>
+        <button class="btn btn-gold" onclick="saveProduct()">💾 Save Product</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- Add/Edit Appointment Modal -->
-<div class="modal-overlay" id="appt-modal">
-  <div class="modal">
-    <div class="modal-header">
-      <h3 id="appt-modal-title">New Appointment</h3>
-      <button class="modal-close" onclick="closeModal('appt-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="appt-form" onsubmit="return false">
-        <div class="form-grid form-grid-2">
+  <!-- Stock Adjustment Modal -->
+  <div class="modal-overlay" id="stock-modal">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <h3>Adjust Stock</h3>
+        <button class="modal-close" onclick="closeModal('stock-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-weight:600;margin-bottom:4px;color:var(--dark)" id="stock-product-name">Product</p>
+        <div id="stock-current-info" style="font-size:0.85rem; color:var(--gray); margin-bottom:16px;">Current Stock: —
+        </div>
+        <div class="form-grid">
           <div class="form-group">
-            <label>Client Name *</label>
-            <input type="text" id="af-client" placeholder="Full name" required />
-          </div>
-          <div class="form-group">
-            <label>Phone Number</label>
-            <input type="tel" id="af-phone" placeholder="09XX-XXX-XXXX" />
-          </div>
-          <div class="form-group" style="grid-column:span 2">
-            <label>Service</label>
-            <select id="af-service">
-              <option value="">Select service...</option>
+            <label title="Whether you are consuming the item or restocking it">Adjustment Type ⓘ</label>
+            <select id="stock-type" onchange="updateStockPreview()">
+              <option value="out" selected>Remove Stock (- Out)</option>
+              <option value="in">Add Stock (+ In)</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Date *</label>
-            <input type="date" id="af-date" required />
-          </div>
-          <div class="form-group">
-            <label>Time *</label>
-            <input type="time" id="af-time" required />
-          </div>
-          <div class="form-group">
-            <label>Amount (₱)</label>
-            <input type="number" id="af-amount" placeholder="0.00" min="0" step="0.01" />
-          </div>
-          <div class="form-group">
-            <label>Status</label>
-            <select id="af-status">
-              <option value="pending">Pending</option>
-              <option value="confirmed">Confirmed</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
+            <label title="How many items are being added or removed">Quantity ⓘ</label>
+            <input type="number" id="stock-qty" value="1" min="1" oninput="updateStockPreview()" />
           </div>
           <div class="form-group" style="grid-column:span 2">
-            <label>Notes</label>
-            <textarea id="af-notes" placeholder="Special requests, allergies, etc."></textarea>
+            <label>Notes / Reason</label>
+            <input type="text" id="stock-notes" placeholder="e.g. Purchased from supplier, Used for service..." />
           </div>
         </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('appt-modal')">Cancel</button>
-      <button class="btn btn-gold" onclick="saveAppointment()">💾 Save Appointment</button>
-    </div>
-  </div>
-</div>
-
-<!-- Supplier Modal -->
-<div class="modal-overlay" id="supplier-modal">
-  <div class="modal" style="max-width:480px">
-    <div class="modal-header">
-      <h3 id="supplier-modal-title">Add Supplier</h3>
-      <button class="modal-close" onclick="closeModal('supplier-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="supplier-form" onsubmit="return false">
-        <div class="form-grid form-grid-2">
-          <div class="form-group" style="grid-column:span 2">
-            <label>Supplier Name *</label>
-            <input type="text" id="supf-name" placeholder="Company name" required />
-          </div>
-          <div class="form-group">
-            <label>Contact Person</label>
-            <input type="text" id="supf-contact" placeholder="Full name" />
-          </div>
-          <div class="form-group">
-            <label>Phone</label>
-            <input type="tel" id="supf-phone" placeholder="Phone number" />
-          </div>
-          <div class="form-group">
-            <label>Email</label>
-            <input type="email" id="supf-email" placeholder="email@example.com" />
-          </div>
-          <div class="form-group">
-            <label>Address</label>
-            <input type="text" id="supf-address" placeholder="Business address" />
-          </div>
-        </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('supplier-modal')">Cancel</button>
-      <button class="btn btn-gold" onclick="saveSupplier()">💾 Save Supplier</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('stock-modal')">Cancel</button>
+        <button class="btn btn-gold" onclick="saveStockAdjustment()">✓ Update Stock</button>
+      </div>
     </div>
   </div>
-</div>
+
+  <!-- Add/Edit Service Modal -->
+  <div class="modal-overlay" id="service-modal">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <h3 id="service-modal-title">Add Service</h3>
+        <button class="modal-close" onclick="closeModal('service-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="service-form" onsubmit="return false">
+          <div class="form-grid form-grid-2">
+            <div class="form-group" style="grid-column:span 2">
+              <label>Service Name *</label>
+              <input type="text" id="sf-name" placeholder="e.g. Korean Black Pearl" required />
+            </div>
+            <div class="form-group">
+              <label>Category *</label>
+              <input type="text" id="sf-category" list="svc-cats" placeholder="e.g. Facial" required />
+              <datalist id="svc-cats">
+                <option>Facial</option>
+                <option>Waxing</option>
+                <option>Threading</option>
+                <option>Tinting</option>
+                <option>Meso Treatments</option>
+                <option>Exilis Treatments</option>
+                <option>Face Tightening</option>
+                <option>Nails</option>
+              </datalist>
+            </div>
+            <div class="form-group">
+              <label>Price (₱) *</label>
+              <input type="number" id="sf-price" placeholder="0.00" min="0" step="0.01" required />
+            </div>
+            <div class="form-group">
+              <label>Duration (minutes)</label>
+              <input type="number" id="sf-duration" value="60" min="5" step="5" />
+            </div>
+            <div class="form-group" style="grid-column:span 2">
+              <label>Description</label>
+              <textarea id="sf-description" placeholder="Optional description..."></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('service-modal')">Cancel</button>
+        <button class="btn btn-gold" onclick="saveService()">💾 Save Service</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Appointment Modal -->
+  <div class="modal-overlay" id="appt-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="appt-modal-title">New Appointment</h3>
+        <button class="modal-close" onclick="closeModal('appt-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="appt-form" onsubmit="return false">
+          <div class="form-grid form-grid-2">
+            <div class="form-group">
+              <label>Client Name *</label>
+              <input type="text" id="af-client" placeholder="Full name" required />
+            </div>
+            <div class="form-group">
+              <label>Phone Number</label>
+              <input type="tel" id="af-phone" placeholder="09XX-XXX-XXXX" />
+            </div>
+            <div class="form-group" style="grid-column:span 2">
+              <label>Service</label>
+              <select id="af-service">
+                <option value="">Select service...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Date *</label>
+              <input type="date" id="af-date" required />
+            </div>
+            <div class="form-group">
+              <label>Time *</label>
+              <input type="time" id="af-time" required />
+            </div>
+            <div class="form-group">
+              <label>Amount (₱)</label>
+              <input type="number" id="af-amount" placeholder="0.00" min="0" step="0.01" />
+            </div>
+            <div class="form-group">
+              <label>Status</label>
+              <select id="af-status">
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div class="form-group" style="grid-column:span 2">
+              <label>Notes</label>
+              <textarea id="af-notes" placeholder="Special requests, allergies, etc."></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('appt-modal')">Cancel</button>
+        <button class="btn btn-gold" onclick="saveAppointment()">💾 Save Appointment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supplier Modal -->
+  <div class="modal-overlay" id="supplier-modal">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <h3 id="supplier-modal-title">Add Supplier</h3>
+        <button class="modal-close" onclick="closeModal('supplier-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="supplier-form" onsubmit="return false">
+          <div class="form-grid form-grid-2">
+            <div class="form-group" style="grid-column:span 2">
+              <label>Supplier Name *</label>
+              <input type="text" id="supf-name" placeholder="Company name" required />
+            </div>
+            <div class="form-group">
+              <label>Contact Person</label>
+              <input type="text" id="supf-contact" placeholder="Full name" />
+            </div>
+            <div class="form-group">
+              <label>Phone</label>
+              <input type="tel" id="supf-phone" placeholder="Phone number" />
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" id="supf-email" placeholder="email@example.com" />
+            </div>
+            <div class="form-group">
+              <label>Address</label>
+              <input type="text" id="supf-address" placeholder="Business address" />
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('supplier-modal')">Cancel</button>
+        <button class="btn btn-gold" onclick="saveSupplier()">💾 Save Supplier</button>
+      </div>
+    </div>
+  </div>
 
 
 
-<script src="js/app.js"></script>
-<script>
+  <script src="js/app.js"></script>
+  <script>
   // Extra helpers not in app.js
   }
 
-  function renderRevenueChart(sales) {
-    const canvas = document.getElementById('rpt-revenue-chart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    // Group by day
-    const groups = {};
-    sales.forEach(s => {
-      const d = new Date(s.created_at).getDate();
-      groups[d] = (groups[d] || 0) + (s.total || 0);
-    });
-    const days = Object.keys(groups).map(Number).sort((a, b) => a - b);
-    const vals = days.map(d => groups[d]);
-    drawBarChart(ctx, canvas.offsetWidth || 400, 200, days.map(d => d.toString()), vals);
-  }
-
-  async function testConnection() {
-    if (!supabase) { showToast('Not connected. Enter credentials and save first.', 'warning'); return; }
-    try {
-      const { error } = await supabase.from('products').select('id').limit(1);
-      if (error) throw error;
-      showToast('Connection successful! ✓', 'success');
-    } catch(e) {
-      showToast('Connection test failed: ' + e.message, 'error');
+    function renderRevenueChart(sales) {
+      const canvas = document.getElementById('rpt-revenue-chart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      // Group by day
+      const groups = {};
+      sales.forEach(s => {
+        const d = new Date(s.created_at).getDate();
+        groups[d] = (groups[d] || 0) + (s.total || 0);
+      });
+      const days = Object.keys(groups).map(Number).sort((a, b) => a - b);
+      const vals = days.map(d => groups[d]);
+      drawBarChart(ctx, canvas.offsetWidth || 400, 200, days.map(d => d.toString()), vals);
     }
-  }
 
-  function copySQLSchema() {
-    const ta = document.querySelector('textarea[readonly]');
-    navigator.clipboard.writeText(ta.value).then(() => showToast('SQL copied to clipboard!', 'success'));
-  }
-</script>
+    async function testConnection() {
+      if (!supabase) { showToast('Not connected. Enter credentials and save first.', 'warning'); return; }
+      try {
+        const { error } = await supabase.from('products').select('id').limit(1);
+        if (error) throw error;
+        showToast('Connection successful! ✓', 'success');
+      } catch (e) {
+        showToast('Connection test failed: ' + e.message, 'error');
+      }
+    }
+
+    function copySQLSchema() {
+      const ta = document.querySelector('textarea[readonly]');
+      navigator.clipboard.writeText(ta.value).then(() => showToast('SQL copied to clipboard!', 'success'));
+    }
+  </script>
 </body>
+
 </html>
